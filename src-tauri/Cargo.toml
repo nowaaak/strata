@@ -19,6 +19,7 @@ tracing.workspace = true
 ts-rs.workspace = true
 tauri = { version = "2.12", features = [] }
 tauri-plugin-dialog = "2.8"
+tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [lints]

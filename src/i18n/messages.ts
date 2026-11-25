@@ -3,6 +3,7 @@ import * as common from "./modules/common";
 import * as connections from "./modules/connections";
 import * as errors from "./modules/errors";
 import * as grid from "./modules/grid";
+import * as history from "./modules/history";
 import * as palette from "./modules/palette";
 import * as query from "./modules/query";
 import * as schema from "./modules/schema";
@@ -15,6 +16,7 @@ const de = {
     connections: connections.de,
     errors: errors.de,
     grid: grid.de,
+    history: history.de,
     palette: palette.de,
     query: query.de,
     schema: schema.de,
@@ -30,6 +32,7 @@ const en: Messages = {
     connections: connections.en,
     errors: errors.en,
     grid: grid.en,
+    history: history.en,
     palette: palette.en,
     query: query.en,
     schema: schema.en,

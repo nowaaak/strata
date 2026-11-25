@@ -66,6 +66,7 @@ pub struct Settings {
     pub editor_word_wrap: bool,
     pub grid_density: GridDensity,
     pub default_row_limit: u32,
+    pub history_enabled: bool,
 }
 
 impl Default for Settings {
@@ -79,6 +80,7 @@ impl Default for Settings {
             editor_word_wrap: false,
             grid_density: GridDensity::default(),
             default_row_limit: 1_000,
+            history_enabled: true,
         }
     }
 }
@@ -182,6 +184,7 @@ mod tests {
             editor_word_wrap: true,
             grid_density: GridDensity::Compact,
             default_row_limit: 10_000,
+            history_enabled: false,
         };
         store.replace(changed.clone()).await.unwrap();
 
@@ -201,6 +204,7 @@ mod tests {
         assert_eq!(settings.theme, Theme::Light);
         assert_eq!(settings.accent, Accent::Violet);
         assert_eq!(settings.default_row_limit, 1_000);
+        assert!(settings.history_enabled);
     }
 
     #[tokio::test]

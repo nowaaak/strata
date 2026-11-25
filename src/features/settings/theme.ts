@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS: Settings = {
     editorWordWrap: false,
     gridDensity: "normal",
     defaultRowLimit: 1_000,
+    historyEnabled: true,
 };
 
 export const THEMES: Theme[] = ["dark", "light", "system"];

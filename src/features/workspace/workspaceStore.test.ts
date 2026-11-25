@@ -99,3 +99,19 @@ describe("workspace persistence", () => {
         expect(useWorkspace.getState().tabs[0]?.sessionId).toBe("s2");
     });
 });
+
+describe("opening queries for a profile", () => {
+    it("attaches to an open session or creates a detached tab", () => {
+        const store = useWorkspace.getState();
+        const detached = store.openProfileQueryTab("p1", "shop", "SELECT 1");
+        expect(
+            useWorkspace.getState().tabs.find((tab) => tab.id === detached)?.sessionId,
+        ).toBeNull();
+
+        store.addSession(session("s1", "p1"));
+        const attached = useWorkspace.getState().openProfileQueryTab("p1", null, "SELECT 2");
+        const tab = useWorkspace.getState().tabs.find((entry) => entry.id === attached);
+        expect(tab).toMatchObject({ sessionId: "s1", sql: "SELECT 2", number: 2 });
+        expect(useWorkspace.getState().activeTabId).toBe(attached);
+    });
+});

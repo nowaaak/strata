@@ -11,6 +11,11 @@ pub struct CommandError {
 
 impl From<CoreError> for CommandError {
     fn from(err: CoreError) -> Self {
+        if err.kind() == "database" {
+            tracing::warn!(kind = err.kind(), "command failed");
+        } else {
+            tracing::warn!(kind = err.kind(), error = %err, "command failed");
+        }
         Self {
             kind: err.kind().into(),
             message: err.to_string(),

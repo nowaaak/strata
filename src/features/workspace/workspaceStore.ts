@@ -44,6 +44,7 @@ type WorkspaceState = {
     removeSession: (sessionId: string) => WorkspaceTab[];
     removeProfileTabs: (profileId: string) => void;
     openQueryTab: (sessionId: string, database: string | null, sql?: string) => string | null;
+    openProfileQueryTab: (profileId: string, database: string | null, sql: string) => string;
     openTableTab: (sessionId: string, target: TableTarget) => string | null;
     closeTab: (tabId: string) => WorkspaceTab | undefined;
     activate: (tabId: string) => void;
@@ -143,6 +144,26 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
             profileId: session.profileId,
             number: counter,
             database: database ?? session.server.database,
+            sql,
+        };
+        set((state) => ({
+            tabs: [...state.tabs, tab],
+            activeTabId: tab.id,
+            queryCounter: counter,
+        }));
+        return tab.id;
+    },
+
+    openProfileQueryTab: (profileId, database, sql) => {
+        const session = sessionForProfile(get().sessions, profileId);
+        const counter = get().queryCounter + 1;
+        const tab: QueryTab = {
+            id: crypto.randomUUID(),
+            kind: "query",
+            sessionId: session?.sessionId ?? null,
+            profileId,
+            number: counter,
+            database,
             sql,
         };
         set((state) => ({

@@ -4,4 +4,4 @@ import type { GridDensity } from "./GridDensity";
 import type { Language } from "./Language";
 import type { Theme } from "./Theme";
 
-export type Settings = { theme: Theme, accent: Accent, language: Language, zoom: number, editorFontSize: number, editorWordWrap: boolean, gridDensity: GridDensity, defaultRowLimit: number, };
+export type Settings = { theme: Theme, accent: Accent, language: Language, zoom: number, editorFontSize: number, editorWordWrap: boolean, gridDensity: GridDensity, defaultRowLimit: number, historyEnabled: boolean, };

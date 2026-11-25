@@ -1,5 +1,5 @@
 import { setLocale } from "@/i18n";
-import { displayText, formatCount, initialWidth, toTsv } from "./format";
+import { displayText, formatCount, formatRelative, initialWidth, toTsv } from "./format";
 
 describe("toTsv", () => {
     it("joins cells with tabs and quotes special values", () => {
@@ -35,5 +35,17 @@ describe("formatting helpers", () => {
         expect(formatCount(1204331)).toBe("1,204,331");
         const width = initialWidth({ name: "x".repeat(200), typeName: "", kind: "text" });
         expect(width).toBe(360);
+    });
+});
+
+describe("formatRelative", () => {
+    it("picks the largest fitting unit in the active language", () => {
+        const now = Date.UTC(2026, 10, 25, 12, 0, 0);
+        setLocale("de");
+        expect(formatRelative(now - 5 * 60_000, now)).toBe("vor 5 Minuten");
+        expect(formatRelative(now - 24 * 3600_000, now)).toBe("gestern");
+        setLocale("en");
+        expect(formatRelative(now - 3 * 3600_000, now)).toBe("3 hours ago");
+        expect(formatRelative(now, now)).toBe("now");
     });
 });

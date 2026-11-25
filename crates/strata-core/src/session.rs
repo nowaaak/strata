@@ -92,6 +92,17 @@ pub enum QueryEvent {
 
 pub type EventSink<'a> = &'a (dyn Fn(QueryEvent) + Send + Sync);
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExecutionSummary {
+    pub statements: u32,
+    pub elapsed_ms: u32,
+    pub rows: Option<u32>,
+    pub affected: Option<u32>,
+    pub failed: bool,
+    pub cancelled: bool,
+    pub error: Option<String>,
+}
+
 pub struct SessionManager {
     profiles: Arc<ProfileStore>,
     sessions: Mutex<HashMap<String, Arc<Session>>>,
@@ -478,7 +489,7 @@ impl Session {
         sql: &str,
         row_limit: usize,
         emit: EventSink<'_>,
-    ) -> CoreResult<()> {
+    ) -> CoreResult<ExecutionSummary> {
         let statements = split_statements(sql, self.dialect);
         if statements.is_empty() {
             return Err(CoreError::InvalidInput(
@@ -504,6 +515,10 @@ impl Session {
         });
         let started = Instant::now();
         let mut cancelled = false;
+        let mut summary = ExecutionSummary {
+            statements: statements.len() as u32,
+            ..ExecutionSummary::default()
+        };
         for (index, statement) in statements.iter().enumerate() {
             let index = index as u32;
             if tab.cancelled.load(Ordering::SeqCst) {
@@ -519,7 +534,7 @@ impl Session {
             let outcome = conn.run(&statement.text, &mut sink).await;
             let result = sink.finish();
             match outcome {
-                Ok(summary) => {
+                Ok(run) => {
                     let outcome = match result {
                         Some((result, set)) => StatementOutcome::Rows {
                             result,
@@ -527,9 +542,18 @@ impl Session {
                             truncated: set.is_truncated(),
                         },
                         None => StatementOutcome::Affected {
-                            rows: summary.rows_affected.min(u32::MAX as u64) as u32,
+                            rows: run.rows_affected.min(u32::MAX as u64) as u32,
                         },
                     };
+                    match outcome {
+                        StatementOutcome::Rows { rows, .. } => {
+                            summary.rows.get_or_insert(rows);
+                        }
+                        StatementOutcome::Affected { rows } => {
+                            summary.affected =
+                                Some(summary.affected.unwrap_or(0).saturating_add(rows));
+                        }
+                    }
                     emit(QueryEvent::StatementFinished {
                         index,
                         elapsed_ms: elapsed_ms(statement_started),
@@ -542,6 +566,8 @@ impl Session {
                         *slot = None;
                         *lock(&tab.cancel) = None;
                     }
+                    summary.failed = !was_cancelled;
+                    summary.error = Some(err.message.clone());
                     emit(QueryEvent::StatementFailed {
                         index,
                         error_at: error_offset(statement, &err),
@@ -553,11 +579,13 @@ impl Session {
                 }
             }
         }
+        summary.cancelled = cancelled;
+        summary.elapsed_ms = elapsed_ms(started);
         emit(QueryEvent::Finished {
-            elapsed_ms: elapsed_ms(started),
+            elapsed_ms: summary.elapsed_ms,
             cancelled,
         });
-        Ok(())
+        Ok(summary)
     }
 
     pub async fn load_table(
@@ -580,6 +608,7 @@ impl Session {
             emit,
         )
         .await
+        .map(|_| ())
     }
 
     pub async fn cancel(&self, tab_id: &str) -> CoreResult<()> {

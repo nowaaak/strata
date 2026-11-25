@@ -74,6 +74,16 @@ Open tabs, SQL drafts, the active tab and the query counter are saved to `worksp
 
 Tabs store the profile, not the session. After a restart or a disconnect they are detached, show their draft read-only and offer to connect. When the profile connects, every tab of that profile is attached to the new session, and no extra query tab is opened.
 
+## Query history
+
+The backend records every editor execution after it finished, so a crash in the UI cannot lose entries and table views do not pollute the history. Entries hold the SQL, database, duration, status, row counts and the first error, truncated to 500 characters. Running the newest statement of a connection again only bumps its run counter.
+
+The file `history.jsonl` is append only: one JSON line per entry or deletion. A torn last line after a crash is skipped on load. The file is compacted when obsolete lines outnumber live entries, and only the newest 5,000 entries are kept. SQL larger than 100 KB is not recorded. History can be disabled in the settings, because SQL is stored unencrypted.
+
+## Logging
+
+Logs go to stdout and to a daily rotating file in the app log folder, seven files are kept. Commands log their outcome with counts and durations, never SQL text or passwords. Database errors are logged by kind only, because servers often quote parts of the statement in their message.
+
 ## Frontend state
 
 Zustand stores hold the workspace (sessions, tabs) and query runs. A run is reduced from channel events by the pure function `reduceRun`. TanStack Query caches schema metadata with keys of the form `[kind, sessionId, ...]`, so disconnecting removes all of a session's data at once. After a WebView reload the frontend asks the backend for open sessions and restores them.

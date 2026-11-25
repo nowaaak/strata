@@ -5,6 +5,7 @@ export const de = {
         appearance: "Darstellung",
         editor: "Editor und Tabellen",
         language: "Sprache",
+        about: "Info",
     },
     theme: "Theme",
     themes: { dark: "Dunkel", light: "Hell", system: "System" },
@@ -30,6 +31,21 @@ export const de = {
     saveFailed: "Einstellung wurde nicht gespeichert",
     zoomFailed: "Zoom konnte nicht angewendet werden",
     pixels: (value: number) => `${value} px`,
+    history: "Abfrage-Historie speichern",
+    historyHint:
+        "Ausgeführtes SQL wird unverschlüsselt im App-Datenordner abgelegt, höchstens 5.000 Einträge.",
+    clearHistory: "Historie leeren",
+    clearHistoryTitle: "Gesamte Historie leeren?",
+    clearHistoryDescription: "Alle gespeicherten Abfragen aller Verbindungen werden gelöscht.",
+    historyCleared: (count: string) => `${count} Einträge gelöscht`,
+    clearFailed: "Historie konnte nicht geleert werden",
+    version: "Version",
+    dataDir: "Datenordner",
+    logDir: "Logdateien",
+    logHint:
+        "Täglich eine neue Datei, die letzten 7 Tage bleiben erhalten. SQL-Texte und Passwörter werden nicht protokolliert.",
+    copyPath: "Pfad kopieren",
+    path: "Pfad",
 };
 
 export const en: typeof de = {
@@ -39,6 +55,7 @@ export const en: typeof de = {
         appearance: "Appearance",
         editor: "Editor and tables",
         language: "Language",
+        about: "About",
     },
     theme: "Theme",
     themes: { dark: "Dark", light: "Light", system: "System" },
@@ -64,4 +81,19 @@ export const en: typeof de = {
     saveFailed: "The setting was not saved",
     zoomFailed: "Zoom could not be applied",
     pixels: (value: number) => `${value} px`,
+    history: "Save query history",
+    historyHint:
+        "Executed SQL is stored unencrypted in the app data folder, at most 5,000 entries.",
+    clearHistory: "Clear history",
+    clearHistoryTitle: "Clear the whole history?",
+    clearHistoryDescription: "All saved queries of all connections are deleted.",
+    historyCleared: (count: string) => `${count} entries deleted`,
+    clearFailed: "History could not be cleared",
+    version: "Version",
+    dataDir: "Data folder",
+    logDir: "Log files",
+    logHint:
+        "A new file every day, the last 7 days are kept. SQL text and passwords are not logged.",
+    copyPath: "Copy path",
+    path: "Path",
 };

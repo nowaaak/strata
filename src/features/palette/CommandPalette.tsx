@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
     FileCode2Icon,
+    HistoryIcon,
     MonitorIcon,
     MoonIcon,
     PlugIcon,
@@ -132,6 +133,18 @@ function useCommands(): Command[] {
                 group: "actions",
                 icon: PlusIcon,
                 run: () => useUiStore.getState().openConnectionDialog({ mode: "create" }),
+            },
+            {
+                id: "history",
+                label: t.history.open,
+                group: "actions",
+                icon: HistoryIcon,
+                hint: `${t.common.ctrl}+H`,
+                run: () =>
+                    useUiStore.getState().setHistoryDialog({
+                        profileId: activeTab?.profileId ?? null,
+                        tabId: activeTab?.kind === "query" ? activeTab.id : null,
+                    }),
             },
             {
                 id: "settings",

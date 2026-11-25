@@ -1,7 +1,14 @@
 import type { SQLNamespace } from "@codemirror/lang-sql";
 import type { EditorView } from "@codemirror/view";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { DatabaseIcon, ListChecksIcon, PlayIcon, ShieldAlertIcon, SquareIcon } from "lucide-react";
+import {
+    DatabaseIcon,
+    HistoryIcon,
+    ListChecksIcon,
+    PlayIcon,
+    ShieldAlertIcon,
+    SquareIcon,
+} from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "@/api/invoke";
@@ -39,6 +46,9 @@ import {
     type Attached,
     type QueryTab as QueryTabModel,
 } from "@/features/workspace/workspaceStore";
+import { useUiStore } from "@/app/uiStore";
+import { historyKey } from "@/api/history";
+import { registerEditor } from "./editorRegistry";
 import { clearError, showError, SqlEditor } from "./SqlEditor";
 import { useT } from "@/i18n";
 import { statementAt } from "./statements";
@@ -89,6 +99,7 @@ export function QueryTab({ tab }: { tab: Attached<QueryTabModel> }) {
         if (!final) {
             return;
         }
+        void queryClient.invalidateQueries({ queryKey: historyKey });
         const failed = firstError(final);
         const view = viewRef.current;
         if (failed && failed.errorAt !== null && view) {
@@ -215,6 +226,23 @@ export function QueryTab({ tab }: { tab: Attached<QueryTabModel> }) {
                         ))}
                     </SelectContent>
                 </Select>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                                useUiStore
+                                    .getState()
+                                    .setHistoryDialog({ profileId: tab.profileId, tabId: tab.id })
+                            }
+                        >
+                            <HistoryIcon />
+                            {t.history.title}
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t.history.openHint}</TooltipContent>
+                </Tooltip>
                 {session?.readOnly && (
                     <span className="ml-auto flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
                         <ShieldAlertIcon className="size-3.5" aria-hidden />
@@ -242,6 +270,7 @@ export function QueryTab({ tab }: { tab: Attached<QueryTabModel> }) {
                         onCancel={cancel}
                         onView={(view) => {
                             viewRef.current = view;
+                            registerEditor(tab.id, view);
                         }}
                     />
                 </ResizablePanel>

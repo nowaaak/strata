@@ -10,12 +10,21 @@ pub async fn open_session(
     profile_id: String,
     password: Option<String>,
 ) -> CommandResult<SessionInfo> {
-    Ok(state.sessions.open(&profile_id, password).await?)
+    let info = state.sessions.open(&profile_id, password).await?;
+    tracing::info!(
+        profile = %profile_id,
+        flavor = %info.server.flavor,
+        version = %info.server.version,
+        "session opened"
+    );
+    Ok(info)
 }
 
 #[tauri::command]
 pub async fn close_session(state: State<'_, AppState>, session_id: String) -> CommandResult<()> {
-    Ok(state.sessions.close(&session_id).await?)
+    state.sessions.close(&session_id).await?;
+    tracing::info!(session = %session_id, "session closed");
+    Ok(())
 }
 
 #[tauri::command]

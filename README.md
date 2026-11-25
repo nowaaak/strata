@@ -13,6 +13,7 @@ A fast, modern desktop client for MySQL, MariaDB and PostgreSQL. Built with Taur
 - Inline editing with insert and delete. Changes are previewed as SQL and saved in one transaction that rolls back unless every statement hits exactly one row
 - Export to CSV and JSON
 - Command palette (Ctrl+K) for tables, connections and actions
+- Searchable query history (Ctrl+H) and tabs with SQL drafts that survive a restart
 - Settings (Ctrl+,): theme, accent color, interface zoom, editor font size and line wrapping, grid row height, default row limit, German or English interface
 
 ## Development

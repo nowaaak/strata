@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use strata_core::driver::Row;
 use strata_core::export::{self, ExportFormat};
+use strata_core::history::{HistoryStatus, NewHistoryEntry};
 use strata_core::schema::TableTarget;
 use strata_core::session::{QUERY_ROW_CAP, QueryEvent};
 use strata_core::sql::{SqlStatement, TableQuery};
@@ -40,9 +41,40 @@ pub async fn execute_query(
 ) -> CommandResult<()> {
     let session = state.sessions.get(&session_id)?;
     let emit = forward(on_event);
-    Ok(session
+    let summary = session
         .execute(&tab_id, database.as_deref(), &sql, QUERY_ROW_CAP, &emit)
-        .await?)
+        .await?;
+    tracing::info!(
+        statements = summary.statements,
+        elapsed_ms = summary.elapsed_ms,
+        failed = summary.failed,
+        cancelled = summary.cancelled,
+        "query executed"
+    );
+    if state.settings.get().await.history_enabled {
+        let status = if summary.cancelled {
+            HistoryStatus::Cancelled
+        } else if summary.failed {
+            HistoryStatus::Failed
+        } else {
+            HistoryStatus::Success
+        };
+        let entry = NewHistoryEntry {
+            profile_id: session.info().profile_id,
+            database,
+            sql,
+            duration_ms: summary.elapsed_ms,
+            statements: summary.statements,
+            rows: summary.rows,
+            affected: summary.affected,
+            status,
+            error: summary.error,
+        };
+        if let Err(err) = state.history.record(entry).await {
+            tracing::warn!(kind = err.kind(), error = %err, "query history could not be saved");
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]

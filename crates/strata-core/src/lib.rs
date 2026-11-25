@@ -2,6 +2,7 @@ pub mod driver;
 pub mod error;
 pub mod export;
 mod fsutil;
+pub mod history;
 pub mod profiles;
 pub mod result;
 pub mod schema;

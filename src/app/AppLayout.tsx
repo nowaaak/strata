@@ -34,6 +34,16 @@ function useGlobalShortcuts() {
                 return;
             }
             const key = event.key.toLowerCase();
+            if (key === "h") {
+                event.preventDefault();
+                const state = useWorkspace.getState();
+                const active = state.tabs.find((tab) => tab.id === state.activeTabId);
+                useUiStore.getState().setHistoryDialog({
+                    profileId: active?.profileId ?? null,
+                    tabId: active?.kind === "query" ? active.id : null,
+                });
+                return;
+            }
             if (key === ",") {
                 event.preventDefault();
                 useUiStore.getState().setSettingsOpen(true);

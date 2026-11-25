@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConnectionDialog } from "@/features/connections/ConnectionDialog";
 import { PasswordDialog } from "@/features/connections/PasswordDialog";
 import { CommandPalette } from "@/features/palette/CommandPalette";
+import { HistoryDialog } from "@/features/history/HistoryDialog";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { useApplySettings, useResolvedTheme } from "@/features/settings/useThemeSync";
 import { useWorkspaceStartup } from "@/features/workspace/persistence";
@@ -40,6 +41,7 @@ function AppShell() {
             <PasswordDialog />
             <CommandPalette />
             <SettingsDialog />
+            <HistoryDialog />
             <Toaster theme={theme} position="bottom-right" />
         </>
     );

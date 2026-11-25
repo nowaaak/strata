@@ -80,3 +80,31 @@ export function contentWidth(values: (string | null | undefined)[], header: stri
     );
     return Math.round(Math.min(560, Math.max(64, longest * 7.4 + 28)));
 }
+
+const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+    ["year", 365 * 24 * 3600],
+    ["month", 30 * 24 * 3600],
+    ["week", 7 * 24 * 3600],
+    ["day", 24 * 3600],
+    ["hour", 3600],
+    ["minute", 60],
+    ["second", 1],
+];
+
+export function formatRelative(timestamp: number, now = Date.now()): string {
+    const seconds = Math.round((timestamp - now) / 1000);
+    const format = new Intl.RelativeTimeFormat(getT().common.locale, { numeric: "auto" });
+    for (const [unit, size] of UNITS) {
+        if (Math.abs(seconds) >= size || unit === "second") {
+            return format.format(Math.round(seconds / size), unit);
+        }
+    }
+    return format.format(0, "second");
+}
+
+export function formatDateTime(timestamp: number): string {
+    return new Intl.DateTimeFormat(getT().common.locale, {
+        dateStyle: "medium",
+        timeStyle: "medium",
+    }).format(new Date(timestamp));
+}

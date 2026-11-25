@@ -1,6 +1,11 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getVersion } from "@tauri-apps/api/app";
 import {
+    ClipboardCopyIcon,
     CodeIcon,
+    InfoIcon,
     LanguagesIcon,
+    Trash2Icon,
     MonitorIcon,
     MoonIcon,
     PaletteIcon,
@@ -9,7 +14,21 @@ import {
     type LucideIcon,
 } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
+import { toast } from "sonner";
+import { clearHistory, historyKey } from "@/api/history";
+import { errorMessage } from "@/api/invoke";
+import { appPaths } from "@/api/settings";
 import { useUiStore } from "@/app/uiStore";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { Settings } from "@/bindings/Settings";
 import type { Theme } from "@/bindings/Theme";
 import { Button } from "@/components/ui/button";
@@ -46,12 +65,13 @@ import {
 } from "./theme";
 import { useSettings, useUpdateSettings } from "./useSettings";
 
-type Section = "appearance" | "editor" | "language";
+type Section = "appearance" | "editor" | "language" | "about";
 
 const SECTIONS: { section: Section; icon: LucideIcon }[] = [
     { section: "appearance", icon: PaletteIcon },
     { section: "editor", icon: CodeIcon },
     { section: "language", icon: LanguagesIcon },
+    { section: "about", icon: InfoIcon },
 ];
 
 const THEME_ICONS: Record<Theme, LucideIcon> = {
@@ -90,7 +110,7 @@ function SettingsBody() {
     const change = (patch: Partial<Settings>) => update.mutate({ ...settings, ...patch });
 
     return (
-        <div className="grid min-h-96 grid-cols-[13rem_1fr]">
+        <div className="grid min-h-96 grid-cols-[13rem_minmax(0,1fr)]">
             <nav
                 aria-label={t.settings.title}
                 className="flex flex-col gap-0.5 border-r bg-muted/30 p-2"
@@ -217,8 +237,18 @@ function SettingsBody() {
                                 />
                             )}
                         </Field>
+                        <SwitchField
+                            label={t.settings.history}
+                            checked={settings.historyEnabled}
+                            onChange={(historyEnabled) => change({ historyEnabled })}
+                        />
+                        <p className="-mt-3 text-xs text-muted-foreground">
+                            {t.settings.historyHint}
+                        </p>
+                        <ClearHistoryButton />
                     </>
                 )}
+                {section === "about" && <About />}
                 {section === "language" && (
                     <Field label={t.settings.language}>
                         <Segmented
@@ -344,5 +374,120 @@ function Segmented<T extends string>({
                 </button>
             ))}
         </div>
+    );
+}
+
+function ClearHistoryButton() {
+    const t = useT();
+    const queryClient = useQueryClient();
+    const [open, setOpen] = useState(false);
+
+    const clear = async () => {
+        try {
+            const removed = await clearHistory(null);
+            await queryClient.invalidateQueries({ queryKey: historyKey });
+            toast.success(t.settings.historyCleared(formatCount(removed)));
+        } catch (error) {
+            toast.error(t.settings.clearFailed, { description: errorMessage(error) });
+        } finally {
+            setOpen(false);
+        }
+    };
+
+    return (
+        <>
+            <Button variant="outline" size="sm" className="w-fit" onClick={() => setOpen(true)}>
+                <Trash2Icon />
+                {t.settings.clearHistory}
+            </Button>
+            <AlertDialog open={open} onOpenChange={setOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>{t.settings.clearHistoryTitle}</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {t.settings.clearHistoryDescription}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>{t.common.cancel}</AlertDialogCancel>
+                        <AlertDialogAction
+                            variant="destructive"
+                            onClick={(event) => {
+                                event.preventDefault();
+                                void clear();
+                            }}
+                        >
+                            {t.settings.clearHistory}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </>
+    );
+}
+
+function PathRow({ label, path, hint }: { label: string; path: string; hint?: string }) {
+    const t = useT();
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(path);
+            toast.success(t.common.copied(t.settings.path));
+        } catch (error) {
+            toast.error(t.common.copyFailed, { description: errorMessage(error) });
+        }
+    };
+    return (
+        <div className="flex flex-col gap-1.5">
+            <span className="text-sm leading-none font-medium">{label}</span>
+            <div className="flex items-center gap-2">
+                <code
+                    title={path}
+                    className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1.5 font-mono text-xs select-text"
+                >
+                    {path}
+                </code>
+                <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t.settings.copyPath}
+                    title={t.settings.copyPath}
+                    onClick={() => void copy()}
+                >
+                    <ClipboardCopyIcon />
+                </Button>
+            </div>
+            {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+        </div>
+    );
+}
+
+function About() {
+    const t = useT();
+    const version = useQuery({
+        queryKey: ["app-version"],
+        queryFn: getVersion,
+        staleTime: Infinity,
+    });
+    const paths = useQuery({ queryKey: ["app-paths"], queryFn: appPaths, staleTime: Infinity });
+
+    return (
+        <>
+            <div className="flex flex-col gap-1.5">
+                <span className="text-sm leading-none font-medium">{t.settings.version}</span>
+                <span className="text-sm text-muted-foreground tabular-nums">
+                    Strata {version.data ?? ""}
+                </span>
+            </div>
+            {paths.data && (
+                <>
+                    <PathRow label={t.settings.dataDir} path={paths.data.dataDir} />
+                    <PathRow
+                        label={t.settings.logDir}
+                        path={paths.data.logDir}
+                        hint={t.settings.logHint}
+                    />
+                </>
+            )}
+        </>
     );
 }
