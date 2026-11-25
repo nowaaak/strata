@@ -1,3 +1,5 @@
+import { de as n, en as nEn } from "../plural";
+
 export const de = {
     run: "Ausführen",
     runHint: "Statement am Cursor oder Auswahl (Strg+Enter)",
@@ -23,9 +25,9 @@ export const de = {
         running: "Läuft…",
         pending: "Wartet",
         failed: "Fehler",
-        rows: (rows: string, truncated: boolean) =>
-            `${rows} Zeilen${truncated ? ", Limit erreicht" : ""}`,
-        affected: (rows: string) => `${rows} Zeilen betroffen`,
+        rows: (rows: number, truncated: boolean) =>
+            `${n(rows, "Zeile", "Zeilen")}${truncated ? ", Limit erreicht" : ""}`,
+        affected: (rows: number) => `${n(rows, "Zeile", "Zeilen")} betroffen`,
         cancelled: "Abgebrochen",
         statements: (done: number, total: number) => `${done} von ${total} Statements`,
         waiting: "Warte auf Ergebnis…",
@@ -35,14 +37,15 @@ export const de = {
         result: (index: number) => `Ergebnis ${index}`,
         messages: "Meldungen",
         grid: "Abfrageergebnis",
-        size: (rows: string, columns: number) => `${rows} Zeilen · ${columns} Spalten`,
+        size: (rows: number, columns: number) =>
+            `${n(rows, "Zeile", "Zeilen")} · ${n(columns, "Spalte", "Spalten")}`,
         limitReached: "Limit erreicht",
     },
     export: {
         button: "Exportieren",
         csv: "CSV (Excel-kompatibel)",
         json: "JSON",
-        done: (rows: string) => `${rows} Zeilen exportiert`,
+        done: (rows: number) => `${n(rows, "Zeile", "Zeilen")} exportiert`,
         failed: "Export fehlgeschlagen",
     },
 };
@@ -72,9 +75,9 @@ export const en: typeof de = {
         running: "Running…",
         pending: "Waiting",
         failed: "Error",
-        rows: (rows: string, truncated: boolean) =>
-            `${rows} rows${truncated ? ", limit reached" : ""}`,
-        affected: (rows: string) => `${rows} rows affected`,
+        rows: (rows: number, truncated: boolean) =>
+            `${nEn(rows, "row", "rows")}${truncated ? ", limit reached" : ""}`,
+        affected: (rows: number) => `${nEn(rows, "row", "rows")} affected`,
         cancelled: "Cancelled",
         statements: (done: number, total: number) => `${done} of ${total} statements`,
         waiting: "Waiting for result…",
@@ -84,14 +87,15 @@ export const en: typeof de = {
         result: (index: number) => `Result ${index}`,
         messages: "Messages",
         grid: "Query result",
-        size: (rows: string, columns: number) => `${rows} rows · ${columns} columns`,
+        size: (rows: number, columns: number) =>
+            `${nEn(rows, "row", "rows")} · ${nEn(columns, "column", "columns")}`,
         limitReached: "Limit reached",
     },
     export: {
         button: "Export",
         csv: "CSV (Excel compatible)",
         json: "JSON",
-        done: (rows: string) => `${rows} rows exported`,
+        done: (rows: number) => `${nEn(rows, "row", "rows")} exported`,
         failed: "Export failed",
     },
 };

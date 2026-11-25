@@ -21,12 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { useProfiles } from "@/features/connections/useProfiles";
 import { editorFor } from "@/features/query-editor/editorRegistry";
 import { SqlEditor } from "@/features/query-editor/SqlEditor";
-import {
-    formatCount,
-    formatDateTime,
-    formatDuration,
-    formatRelative,
-} from "@/features/result-grid/format";
+import { formatDateTime, formatDuration, formatRelative } from "@/features/result-grid/format";
 import { useSettings } from "@/features/settings/useSettings";
 import { useWorkspace } from "@/features/workspace/workspaceStore";
 import { useT } from "@/i18n";
@@ -298,10 +293,9 @@ function HistoryBrowser({
                                     {formatDuration(selected.durationMs)}
                                     {selected.statements > 1 &&
                                         ` · ${text.statements(selected.statements)}`}
-                                    {selected.rows !== null &&
-                                        ` · ${text.rows(formatCount(selected.rows))}`}
+                                    {selected.rows !== null && ` · ${text.rows(selected.rows)}`}
                                     {selected.affected !== null &&
-                                        ` · ${text.affected(formatCount(selected.affected))}`}
+                                        ` · ${text.affected(selected.affected)}`}
                                 </dd>
                             </dl>
                             {selected.error && (

@@ -1,3 +1,5 @@
+import { de as n, en as nEn } from "../plural";
+
 export const de = {
     title: "Abfrage-Historie",
     description: "Ausgeführte Abfragen, neueste zuerst",
@@ -18,8 +20,8 @@ export const de = {
     loadFailed: "Historie konnte nicht geladen werden",
     runs: (count: number) => `${count}× ausgeführt`,
     statements: (count: number) => `${count} Statements`,
-    rows: (rows: string) => `${rows} Zeilen`,
-    affected: (rows: string) => `${rows} betroffen`,
+    rows: (rows: number) => n(rows, "Zeile", "Zeilen"),
+    affected: (rows: number) => `${n(rows, "Zeile", "Zeilen")} betroffen`,
     status: { success: "Erfolgreich", failed: "Fehler", cancelled: "Abgebrochen" },
     database: "Datenbank",
     executedAt: "Ausgeführt",
@@ -48,8 +50,8 @@ export const en: typeof de = {
     loadFailed: "History could not be loaded",
     runs: (count: number) => `ran ${count}×`,
     statements: (count: number) => `${count} statements`,
-    rows: (rows: string) => `${rows} rows`,
-    affected: (rows: string) => `${rows} affected`,
+    rows: (rows: number) => nEn(rows, "row", "rows"),
+    affected: (rows: number) => `${nEn(rows, "row", "rows")} affected`,
     status: { success: "Succeeded", failed: "Failed", cancelled: "Cancelled" },
     database: "Database",
     executedAt: "Executed",

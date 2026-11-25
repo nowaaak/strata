@@ -33,7 +33,6 @@ import {
 import { SqlEditor } from "@/features/query-editor/SqlEditor";
 import { DataGrid, type GridEditor } from "@/features/result-grid/DataGrid";
 import { ExportMenu } from "@/features/result-grid/ExportMenu";
-import { formatCount } from "@/features/result-grid/format";
 import { RunStatus } from "@/features/result-grid/ResultPanel";
 import { firstError } from "@/features/result-grid/runState";
 import { cancelRun, runTable, useRuns } from "@/features/result-grid/runStore";
@@ -159,7 +158,7 @@ export function TableTab({ tab }: { tab: Attached<TableTabModel> }) {
                 tab.target,
                 buildChanges(edits, columnNames),
             );
-            toast.success(text.saved(formatCount(count)));
+            toast.success(text.saved(count));
             setReview(null);
             setEdits(emptyEdits());
             setReloadToken((token) => token + 1);
@@ -252,7 +251,7 @@ export function TableTab({ tab }: { tab: Attached<TableTabModel> }) {
                             <SelectContent>
                                 {withOption(ROW_LIMITS, limit).map((value) => (
                                     <SelectItem key={value} value={String(value)}>
-                                        {text.rows(formatCount(value))}
+                                        {text.rows(value)}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
@@ -298,7 +297,7 @@ export function TableTab({ tab }: { tab: Attached<TableTabModel> }) {
                                 </Button>
                                 <Button size="sm" onClick={() => void openReview()}>
                                     <SaveIcon />
-                                    {text.review(formatCount(pending), pending === 1)}
+                                    {text.review(pending)}
                                 </Button>
                             </>
                         )}
@@ -370,9 +369,7 @@ export function TableTab({ tab }: { tab: Attached<TableTabModel> }) {
                     <RunStatus run={run} onCancel={() => cancelRun(tab.sessionId, tab.id)} />
                     {result && (
                         <span className="flex items-center gap-3 tabular-nums">
-                            <span>
-                                {t.query.results.size(formatCount(rowCount), columns.length)}
-                            </span>
+                            <span>{t.query.results.size(rowCount, columns.length)}</span>
                             {result.truncated && (
                                 <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
                                     {text.moreRows}

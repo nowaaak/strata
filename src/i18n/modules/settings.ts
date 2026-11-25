@@ -1,3 +1,5 @@
+import { de as n, en as nEn } from "../plural";
+
 export const de = {
     title: "Einstellungen",
     description: "Änderungen gelten sofort.",
@@ -37,7 +39,7 @@ export const de = {
     clearHistory: "Historie leeren",
     clearHistoryTitle: "Gesamte Historie leeren?",
     clearHistoryDescription: "Alle gespeicherten Abfragen aller Verbindungen werden gelöscht.",
-    historyCleared: (count: string) => `${count} Einträge gelöscht`,
+    historyCleared: (count: number) => `${n(count, "Eintrag", "Einträge")} gelöscht`,
     clearFailed: "Historie konnte nicht geleert werden",
     version: "Version",
     dataDir: "Datenordner",
@@ -87,7 +89,7 @@ export const en: typeof de = {
     clearHistory: "Clear history",
     clearHistoryTitle: "Clear the whole history?",
     clearHistoryDescription: "All saved queries of all connections are deleted.",
-    historyCleared: (count: string) => `${count} entries deleted`,
+    historyCleared: (count: number) => `${nEn(count, "entry", "entries")} deleted`,
     clearFailed: "History could not be cleared",
     version: "Version",
     dataDir: "Data folder",

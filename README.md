@@ -41,7 +41,7 @@ Integration tests run against real servers:
 
 ```sh
 docker compose -f docker-compose.test.yml up -d --wait
-cargo test -p strata-core --test databases -- --ignored
+cargo test -p strata-core --tests -- --ignored
 docker compose -f docker-compose.test.yml down -v
 ```
 

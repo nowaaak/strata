@@ -386,7 +386,7 @@ function ClearHistoryButton() {
         try {
             const removed = await clearHistory(null);
             await queryClient.invalidateQueries({ queryKey: historyKey });
-            toast.success(t.settings.historyCleared(formatCount(removed)));
+            toast.success(t.settings.historyCleared(removed));
         } catch (error) {
             toast.error(t.settings.clearFailed, { description: errorMessage(error) });
         } finally {

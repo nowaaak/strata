@@ -1,9 +1,11 @@
+import { de as n, en as nEn } from "../plural";
+
 export const de = {
     views: { label: "Ansicht", data: "Daten", structure: "Struktur", ddl: "DDL" },
     filter: "WHERE-Bedingung",
     filterPlaceholder: "WHERE-Bedingung, z. B. status = 'offen'",
     rowLimit: "Zeilenlimit",
-    rows: (rows: string) => `${rows} Zeilen`,
+    rows: (rows: number) => n(rows, "Zeile", "Zeilen"),
     reload: "Neu laden",
     readOnly: "Nur lesen",
     reasons: {
@@ -13,10 +15,10 @@ export const de = {
     },
     addRow: "Zeile",
     discard: "Verwerfen",
-    review: (count: string, one: boolean) => `${count} ${one ? "Änderung" : "Änderungen"} prüfen`,
+    review: (count: number) => `${n(count, "Änderung", "Änderungen")} prüfen`,
     finishFirst: "Erst Änderungen speichern oder verwerfen",
     cannotSave: "Änderungen können nicht gespeichert werden",
-    saved: (count: string) => `${count} Änderungen gespeichert`,
+    saved: (count: number) => `${n(count, "Änderung", "Änderungen")} gespeichert`,
     saveFailed: "Speichern fehlgeschlagen, nichts wurde geändert",
     loadingStructure: "Lade Struktur…",
     loadingDdl: "Lade DDL…",
@@ -56,7 +58,7 @@ export const en: typeof de = {
     filter: "WHERE condition",
     filterPlaceholder: "WHERE condition, e.g. status = 'open'",
     rowLimit: "Row limit",
-    rows: (rows: string) => `${rows} rows`,
+    rows: (rows: number) => nEn(rows, "row", "rows"),
     reload: "Reload",
     readOnly: "Read-only",
     reasons: {
@@ -66,10 +68,10 @@ export const en: typeof de = {
     },
     addRow: "Row",
     discard: "Discard",
-    review: (count: string, one: boolean) => `Review ${count} ${one ? "change" : "changes"}`,
+    review: (count: number) => `Review ${nEn(count, "change", "changes")}`,
     finishFirst: "Save or discard your changes first",
     cannotSave: "The changes cannot be saved",
-    saved: (count: string) => `${count} changes saved`,
+    saved: (count: number) => `${nEn(count, "change", "changes")} saved`,
     saveFailed: "Saving failed, nothing was changed",
     loadingStructure: "Loading structure…",
     loadingDdl: "Loading DDL…",

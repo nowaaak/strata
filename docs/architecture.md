@@ -44,7 +44,11 @@ The table view asks the server for `limit + 1` rows and keeps `limit`. A truncat
 
 `sql::is_write` is deliberately conservative. Statements starting with `SHOW`, `DESCRIBE`, `HELP` or `USE` are reads. `SELECT`, `WITH`, `EXPLAIN`, `VALUES` and `TABLE` are reads unless a write keyword appears outside strings and function calls (`SELECT ... FOR UPDATE` and `SELECT ... INTO` count as writes). Everything else is a write.
 
-Read-only profiles are enforced twice: Strata refuses write statements, and the server session is read-only (`SET SESSION TRANSACTION READ ONLY` for MySQL, `default_transaction_read_only` for PostgreSQL). The "confirm" level only asks in the UI.
+Read-only profiles are enforced twice: Strata refuses write statements, and the server session is read-only (`SET SESSION TRANSACTION READ ONLY` for MySQL, `default_transaction_read_only` for PostgreSQL). The "confirm" level only asks in the UI. Integration tests confirm that MySQL, MariaDB and PostgreSQL refuse `INSERT`, `CREATE`, `ALTER`, `TRUNCATE` and `DROP` in such a session.
+
+## TLS
+
+`Required` encrypts without verifying the certificate, like libpq's `require`. It is meant for servers with self-signed certificates. `VerifyFull` checks the certificate chain and host name against the Windows certificate store. Both use `native-tls`, so Windows trust settings apply. PostgreSQL errors include their cause chain, so a server without TLS reports "server does not support TLS" instead of a bare handshake error.
 
 ## Editing
 

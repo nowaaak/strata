@@ -27,7 +27,11 @@ describe("i18n", () => {
     });
 
     it("translates plurals and placeholders", () => {
-        expect(messages.de.table.review("1", true)).toBe("1 Änderung prüfen");
-        expect(messages.en.table.review("3", false)).toBe("Review 3 changes");
+        expect(messages.de.table.review(1)).toBe("1 Änderung prüfen");
+        expect(messages.en.table.review(3)).toBe("Review 3 changes");
+        expect(messages.de.query.results.size(1, 2)).toBe("1 Zeile · 2 Spalten");
+        expect(messages.de.query.results.size(1204331, 1)).toBe("1.204.331 Zeilen · 1 Spalte");
+        expect(messages.en.query.results.size(1, 1)).toBe("1 row · 1 column");
+        expect(messages.en.settings.historyCleared(2)).toBe("2 entries deleted");
     });
 });

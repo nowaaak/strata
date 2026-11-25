@@ -12,7 +12,6 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useT } from "@/i18n";
-import { formatCount } from "./format";
 
 const FORMATS: { format: ExportFormat; extension: string }[] = [
     { format: "csv", extension: "csv" },
@@ -43,7 +42,7 @@ export function ExportMenu({
                 return;
             }
             const count = await exportResult(sessionId, tabId, result, format, path);
-            toast.success(t.query.export.done(formatCount(count)), { description: path });
+            toast.success(t.query.export.done(count), { description: path });
         } catch (error) {
             toast.error(t.query.export.failed, { description: errorMessage(error) });
         }

@@ -200,7 +200,7 @@ export function DataGrid({ label, columns, rowCount, cache, sort, onSort, editor
         const count = range.r1 - range.r0 + 1;
         if (count > COPY_LIMIT) {
             toast.error(t.grid.tooLarge, {
-                description: t.grid.tooLargeDescription(formatCount(COPY_LIMIT)),
+                description: t.grid.tooLargeDescription(COPY_LIMIT),
             });
             return;
         }
@@ -229,7 +229,7 @@ export function DataGrid({ label, columns, rowCount, cache, sort, onSort, editor
                 : null;
             await navigator.clipboard.writeText(toTsv(header, rows));
             if (count > 1) {
-                toast.success(t.grid.copiedRows(formatCount(count)));
+                toast.success(t.grid.copiedRows(count));
             }
         } catch (error) {
             toast.error(t.common.copyFailed, {

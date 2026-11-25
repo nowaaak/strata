@@ -12,7 +12,7 @@ import { useT, type Messages } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { DataGrid } from "./DataGrid";
 import { ExportMenu } from "./ExportMenu";
-import { formatCount, formatDuration } from "./format";
+import { formatDuration } from "./format";
 import { firstError, type RunState, type StatementState } from "./runState";
 import { cancelRun, useRuns } from "./runStore";
 import { useResultCache } from "./useResultCache";
@@ -34,8 +34,8 @@ function outcomeText(statement: StatementState, t: Messages): string {
                 return "";
             }
             return outcome.type === "rows"
-                ? status.rows(formatCount(outcome.rows), outcome.truncated)
-                : status.affected(formatCount(outcome.rows));
+                ? status.rows(outcome.rows, outcome.truncated)
+                : status.affected(outcome.rows);
         }
     }
 }
@@ -236,12 +236,7 @@ export function ResultPanel({
                 <span className="flex items-center gap-3 tabular-nums">
                     {result && !messagesView && (
                         <>
-                            <span>
-                                {t.query.results.size(
-                                    formatCount(result.rows),
-                                    result.columns.length,
-                                )}
-                            </span>
+                            <span>{t.query.results.size(result.rows, result.columns.length)}</span>
                             {result.truncated && (
                                 <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
                                     {t.query.results.limitReached}

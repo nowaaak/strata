@@ -269,11 +269,26 @@ fn map_error(err: tokio_postgres::Error) -> DbError {
         };
     }
     let io = std::error::Error::source(&err).is_some_and(|source| source.is::<std::io::Error>());
+    let message = with_causes(&err);
     if err.is_closed() || io {
-        DbError::lost(err.to_string())
+        DbError::lost(message)
     } else {
-        DbError::message(err.to_string())
+        DbError::message(message)
     }
+}
+
+fn with_causes(err: &dyn std::error::Error) -> String {
+    let mut message = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        if !message.contains(&text) {
+            message.push_str(": ");
+            message.push_str(&text);
+        }
+        source = cause.source();
+    }
+    message
 }
 
 fn type_label(ty: &Type) -> String {

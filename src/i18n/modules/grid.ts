@@ -1,3 +1,5 @@
+import { de as n, en as nEn } from "../plural";
+
 export const de = {
     copy: "Kopieren",
     copyWithHeaders: "Mit Spaltennamen kopieren",
@@ -7,9 +9,9 @@ export const de = {
     deleteRow: "Zeile löschen",
     deleteRows: "Zeilen löschen",
     tooLarge: "Auswahl zu groß",
-    tooLargeDescription: (limit: string) =>
-        `Kopiert werden höchstens ${limit} Zeilen. Für mehr bitte exportieren.`,
-    copiedRows: (rows: string) => `${rows} Zeilen kopiert`,
+    tooLargeDescription: (limit: number) =>
+        `Kopiert werden höchstens ${n(limit, "Zeile", "Zeilen")}. Für mehr bitte exportieren.`,
+    copiedRows: (rows: number) => `${n(rows, "Zeile", "Zeilen")} kopiert`,
     editCell: (column: string) => `${column} bearbeiten`,
     loadFailed: "Zeilen konnten nicht geladen werden",
     keys: { copy: "Strg+C", copyWithHeaders: "Strg+⇧+C", edit: "F2", delete: "Entf" },
@@ -24,9 +26,9 @@ export const en: typeof de = {
     deleteRow: "Delete row",
     deleteRows: "Delete rows",
     tooLarge: "Selection too large",
-    tooLargeDescription: (limit: string) =>
-        `At most ${limit} rows can be copied. Please export for more.`,
-    copiedRows: (rows: string) => `${rows} rows copied`,
+    tooLargeDescription: (limit: number) =>
+        `At most ${nEn(limit, "row", "rows")} can be copied. Please export for more.`,
+    copiedRows: (rows: number) => `${nEn(rows, "row", "rows")} copied`,
     editCell: (column: string) => `Edit ${column}`,
     loadFailed: "Rows could not be loaded",
     keys: { copy: "Ctrl+C", copyWithHeaders: "Ctrl+Shift+C", edit: "F2", delete: "Del" },

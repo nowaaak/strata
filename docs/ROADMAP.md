@@ -6,11 +6,9 @@ Effort: S is up to a day, M a few days, L a week or more.
 
 Goal: Strata is safe to use every day and nothing gets lost.
 
-| Item                                                                                                                                           | Why                                                                                                                                      | Effort |
-| ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| Verify the untested paths: TLS against a TLS server, password prompt on connect, MariaDB through the UI, copy to clipboard, native save dialog | These run in code but were never exercised end to end.                                                                                   | S      |
-| Check that MySQL read-only sessions also block DDL                                                                                             | `SET SESSION TRANSACTION READ ONLY` may not stop `CREATE` or `DROP`. Strata's own write check covers it, the server side is unconfirmed. | S      |
-| Installer build with `npm run tauri build`                                                                                                     | Only the dev build has been run so far.                                                                                                  | S      |
+| Item                                       | Why                                     | Effort |
+| ------------------------------------------ | --------------------------------------- | ------ |
+| Installer build with `npm run tauri build` | Only the dev build has been run so far. | S      |
 
 ## 2. Core database work
 
@@ -57,6 +55,7 @@ Goal: the everyday HeidiSQL tasks work without falling back to another tool.
 - Open tabs and SQL drafts survive a restart and a disconnect. They reattach when their connection opens again.
 - Searchable query history per connection or across all connections (Ctrl+H), with reuse in the editor or a new tab. It can be turned off in the settings.
 - Daily rotating log file in the app data folder, kept for 7 days, without SQL text or passwords.
+- Verified against real servers: TLS in all three modes for MySQL, MariaDB and PostgreSQL, server side read-only sessions block inserts and DDL on all three, password prompt on connect, MariaDB through the UI, copy to clipboard. The native save dialog is still only exercised by hand.
 
 ## Known limitations
 
