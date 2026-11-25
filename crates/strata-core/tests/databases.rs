@@ -64,10 +64,12 @@ async fn open(server: Server, safety: Safety) -> Harness {
                 safety,
                 ask_password: false,
                 group: None,
+                ssh: None,
             },
             PasswordUpdate::Set {
                 value: "strata".into(),
             },
+            PasswordUpdate::Keep,
         )
         .await
         .unwrap();

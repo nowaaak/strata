@@ -69,6 +69,7 @@ pub fn run() {
             commands::profiles::test_connection,
             commands::profiles::set_profile_group,
             commands::profiles::rename_group,
+            commands::profiles::set_ssh_host_key,
             commands::sessions::open_session,
             commands::sessions::close_session,
             commands::sessions::list_sessions,

@@ -2,6 +2,7 @@
 import type { Engine } from "./Engine";
 import type { ProfileColor } from "./ProfileColor";
 import type { Safety } from "./Safety";
+import type { SshConfig } from "./SshConfig";
 import type { TlsMode } from "./TlsMode";
 
-export type ConnectionProfile = { id: string, name: string, engine: Engine, host: string, port: number, user: string, database: string | null, tls: TlsMode, color: ProfileColor, safety: Safety, askPassword: boolean, group: string | null, };
+export type ConnectionProfile = { id: string, name: string, engine: Engine, host: string, port: number, user: string, database: string | null, tls: TlsMode, color: ProfileColor, safety: Safety, askPassword: boolean, group: string | null, ssh: SshConfig | null, };

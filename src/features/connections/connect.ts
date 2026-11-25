@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { errorMessage } from "@/api/invoke";
+import { AppError, errorMessage } from "@/api/invoke";
 import { closeTab } from "@/api/query";
 import { closeSession, openSession } from "@/api/sessions";
 import { treeKey, useUiStore } from "@/app/uiStore";
@@ -29,6 +29,21 @@ export async function connectProfile(profile: ConnectionProfile, password: strin
         }
         return session;
     } catch (error) {
+        if (error instanceof AppError && error.kind === "ssh_host_key_unknown" && error.detail) {
+            useUiStore
+                .getState()
+                .setHostKeyPrompt({ profile, fingerprint: error.detail, password });
+            return null;
+        }
+        if (error instanceof AppError && error.kind === "ssh_host_key_changed") {
+            const text = getT().connections.ssh;
+            toast.error(text.changedTitle, {
+                description: `${text.changedDescription} ${text.fingerprint}: ${error.detail ?? ""}`,
+                duration: Infinity,
+                closeButton: true,
+            });
+            return null;
+        }
         toast.error(getT().connections.toast.connectFailed(profile.name), {
             description: errorMessage(error),
         });

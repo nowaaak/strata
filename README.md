@@ -6,6 +6,7 @@ A fast, modern desktop client for MySQL, MariaDB and PostgreSQL. Built with Taur
 
 - Connection profiles in collapsible groups, with color tags, TLS and a safety level per connection: normal, confirm before writing, or read-only (enforced by Strata and by the server session)
 - Passwords live in the Windows Credential Manager, or are asked for on every connect
+- SSH tunnel per connection with password or key file (with optional passphrase). The server key is confirmed on first use and a changed key blocks the connection
 - Schema tree with databases, PostgreSQL schemas, tables and views, plus a filter
 - SQL editor with syntax highlighting, schema-aware autocomplete, run statement at cursor (Ctrl+Enter) or the whole script (Ctrl+Shift+Enter), cancel (Ctrl+.) and the error position marked in the text
 - Virtualized result grid that streams up to one million rows, range selection, copy as TSV, resizable columns

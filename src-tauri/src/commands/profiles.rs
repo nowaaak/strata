@@ -15,8 +15,10 @@ pub async fn save_profile(
     state: State<'_, AppState>,
     profile: ConnectionProfile,
     password: PasswordUpdate,
+    ssh_secret: Option<PasswordUpdate>,
 ) -> CommandResult<ConnectionProfile> {
-    Ok(state.profiles.save(profile, password).await?)
+    let ssh_secret = ssh_secret.unwrap_or(PasswordUpdate::Keep);
+    Ok(state.profiles.save(profile, password, ssh_secret).await?)
 }
 
 #[tauri::command]
@@ -30,8 +32,23 @@ pub async fn test_connection(
     state: State<'_, AppState>,
     profile: ConnectionProfile,
     password: PasswordUpdate,
+    ssh_secret: Option<PasswordUpdate>,
 ) -> CommandResult<ServerDetails> {
-    Ok(state.sessions.test(&profile, &password).await?)
+    let ssh_secret = ssh_secret.unwrap_or(PasswordUpdate::Keep);
+    Ok(state
+        .sessions
+        .test(&profile, &password, &ssh_secret)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn set_ssh_host_key(
+    state: State<'_, AppState>,
+    id: String,
+    fingerprint: Option<String>,
+) -> CommandResult<ConnectionProfile> {
+    tracing::info!(profile = %id, trusted = fingerprint.is_some(), "ssh host key updated");
+    Ok(state.profiles.set_ssh_host_key(&id, fingerprint).await?)
 }
 
 #[tauri::command]

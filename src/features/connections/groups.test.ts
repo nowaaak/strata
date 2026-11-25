@@ -15,6 +15,7 @@ function profile(name: string, group: string | null): ConnectionProfile {
         safety: "normal",
         askPassword: false,
         group,
+        ssh: null,
     };
 }
 

@@ -81,6 +81,32 @@ pub struct ConnectionProfile {
     pub ask_password: bool,
     #[serde(default)]
     pub group: Option<String>,
+    #[serde(default)]
+    pub ssh: Option<SshConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum SshAuth {
+    Password,
+    KeyFile { path: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SshConfig {
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub auth: SshAuth,
+    #[serde(default)]
+    pub host_key: Option<String>,
+}
+
+pub fn ssh_secret_key(profile_id: &str) -> String {
+    format!("{profile_id}#ssh")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -133,6 +159,7 @@ impl ProfileStore {
         &self,
         profile: ConnectionProfile,
         password: PasswordUpdate,
+        ssh_secret: PasswordUpdate,
     ) -> CoreResult<ConnectionProfile> {
         let mut profile = normalize(profile)?;
         let mut profiles = self.profiles.write().await;
@@ -147,6 +174,7 @@ impl ProfileStore {
         }
 
         self.apply_password(&profile, &password)?;
+        self.apply_ssh_secret(&profile, &ssh_secret)?;
 
         let mut next = profiles.clone();
         match existing {
@@ -155,10 +183,12 @@ impl ProfileStore {
         }
         let file = ProfileFile { profiles: next };
         if let Err(err) = write_json_atomic(&self.path, &file).await {
-            if existing.is_none()
-                && let Err(cleanup) = self.secrets.delete(&profile.id)
-            {
-                tracing::warn!(error = %cleanup, "could not remove password of unsaved profile");
+            if existing.is_none() {
+                for key in [profile.id.clone(), ssh_secret_key(&profile.id)] {
+                    if let Err(cleanup) = self.secrets.delete(&key) {
+                        tracing::warn!(error = %cleanup, "could not remove secret of unsaved profile");
+                    }
+                }
             }
             return Err(err);
         }
@@ -181,7 +211,35 @@ impl ProfileStore {
         let file = ProfileFile { profiles: next };
         write_json_atomic(&self.path, &file).await?;
         *profiles = file.profiles;
-        self.secrets.delete(id)
+        self.secrets.delete(id)?;
+        self.secrets.delete(&ssh_secret_key(id))
+    }
+
+    pub async fn set_ssh_host_key(
+        &self,
+        id: &str,
+        fingerprint: Option<String>,
+    ) -> CoreResult<ConnectionProfile> {
+        let mut profiles = self.profiles.write().await;
+        let mut next = profiles.clone();
+        let profile = next
+            .iter_mut()
+            .find(|profile| profile.id == id)
+            .ok_or_else(|| {
+                CoreError::NotFound(format!("connection profile {id} does not exist"))
+            })?;
+        let ssh = profile
+            .ssh
+            .as_mut()
+            .ok_or_else(|| CoreError::InvalidInput("the profile has no SSH tunnel".into()))?;
+        ssh.host_key = fingerprint
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let updated = profile.clone();
+        let file = ProfileFile { profiles: next };
+        write_json_atomic(&self.path, &file).await?;
+        *profiles = file.profiles;
+        Ok(updated)
     }
 
     pub async fn set_group(
@@ -240,6 +298,35 @@ impl ProfileStore {
         }
     }
 
+    pub fn resolve_ssh_secret(
+        &self,
+        profile: &ConnectionProfile,
+        update: &PasswordUpdate,
+    ) -> CoreResult<Option<String>> {
+        match update {
+            PasswordUpdate::Set { value } => Ok(Some(value.clone())),
+            PasswordUpdate::Clear => Ok(None),
+            PasswordUpdate::Keep if profile.id.is_empty() => Ok(None),
+            PasswordUpdate::Keep => self.secrets.get(&ssh_secret_key(&profile.id)),
+        }
+    }
+
+    fn apply_ssh_secret(
+        &self,
+        profile: &ConnectionProfile,
+        secret: &PasswordUpdate,
+    ) -> CoreResult<()> {
+        let key = ssh_secret_key(&profile.id);
+        if profile.ssh.is_none() {
+            return self.secrets.delete(&key);
+        }
+        match secret {
+            PasswordUpdate::Keep => Ok(()),
+            PasswordUpdate::Set { value } => self.secrets.set(&key, value),
+            PasswordUpdate::Clear => self.secrets.delete(&key),
+        }
+    }
+
     fn apply_password(
         &self,
         profile: &ConnectionProfile,
@@ -286,6 +373,34 @@ fn normalize(mut profile: ConnectionProfile) -> CoreResult<ConnectionProfile> {
         return Err(CoreError::InvalidInput("user must not be empty".into()));
     }
     profile.group = normalize_group(profile.group)?;
+    if let Some(ssh) = profile.ssh.as_mut() {
+        ssh.host = ssh.host.trim().to_string();
+        ssh.user = ssh.user.trim().to_string();
+        ssh.host_key = ssh
+            .host_key
+            .take()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        if let SshAuth::KeyFile { path } = &mut ssh.auth {
+            *path = path.trim().to_string();
+            if path.is_empty() {
+                return Err(CoreError::InvalidInput(
+                    "SSH key file must not be empty".into(),
+                ));
+            }
+        }
+        if ssh.host.is_empty() {
+            return Err(CoreError::InvalidInput("SSH host must not be empty".into()));
+        }
+        if ssh.port == 0 {
+            return Err(CoreError::InvalidInput(
+                "SSH port must be between 1 and 65535".into(),
+            ));
+        }
+        if ssh.user.is_empty() {
+            return Err(CoreError::InvalidInput("SSH user must not be empty".into()));
+        }
+    }
     Ok(profile)
 }
 
@@ -325,6 +440,7 @@ mod tests {
             safety: Safety::Normal,
             ask_password: false,
             group: Some("  ".into()),
+            ssh: None,
         }
     }
 
@@ -332,9 +448,15 @@ mod tests {
     async fn groups_can_be_assigned_renamed_and_dissolved() {
         let dir = tempfile::tempdir().unwrap();
         let (store, _) = store(&dir).await;
-        let first = store.save(sample(), PasswordUpdate::Keep).await.unwrap();
+        let first = store
+            .save(sample(), PasswordUpdate::Keep, PasswordUpdate::Keep)
+            .await
+            .unwrap();
         assert_eq!(first.group, None);
-        let second = store.save(sample(), PasswordUpdate::Keep).await.unwrap();
+        let second = store
+            .save(sample(), PasswordUpdate::Keep, PasswordUpdate::Keep)
+            .await
+            .unwrap();
 
         let moved = store
             .set_group(&first.id, Some("  Kunden ".into()))
@@ -411,6 +533,7 @@ mod tests {
                 PasswordUpdate::Set {
                     value: "secret".into(),
                 },
+                PasswordUpdate::Keep,
             )
             .await
             .unwrap();
@@ -433,13 +556,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (store, secrets) = store(&dir).await;
         let saved = store
-            .save(sample(), PasswordUpdate::Set { value: "pw".into() })
+            .save(
+                sample(),
+                PasswordUpdate::Set { value: "pw".into() },
+                PasswordUpdate::Keep,
+            )
             .await
             .unwrap();
 
         let mut renamed = saved.clone();
         renamed.name = "Renamed".into();
-        store.save(renamed, PasswordUpdate::Keep).await.unwrap();
+        store
+            .save(renamed, PasswordUpdate::Keep, PasswordUpdate::Keep)
+            .await
+            .unwrap();
         assert_eq!(secrets.get(&saved.id).unwrap().as_deref(), Some("pw"));
         assert_eq!(
             store
@@ -452,7 +582,7 @@ mod tests {
         let mut asking = saved.clone();
         asking.ask_password = true;
         store
-            .save(asking.clone(), PasswordUpdate::Keep)
+            .save(asking.clone(), PasswordUpdate::Keep, PasswordUpdate::Keep)
             .await
             .unwrap();
         assert_eq!(secrets.get(&saved.id).unwrap(), None);
@@ -472,7 +602,7 @@ mod tests {
         nameless.name = " ".into();
         assert_eq!(
             store
-                .save(nameless, PasswordUpdate::Keep)
+                .save(nameless, PasswordUpdate::Keep, PasswordUpdate::Keep)
                 .await
                 .unwrap_err()
                 .kind(),
@@ -481,13 +611,18 @@ mod tests {
 
         let mut no_port = sample();
         no_port.port = 0;
-        assert!(store.save(no_port, PasswordUpdate::Keep).await.is_err());
+        assert!(
+            store
+                .save(no_port, PasswordUpdate::Keep, PasswordUpdate::Keep)
+                .await
+                .is_err()
+        );
 
         let mut unknown = sample();
         unknown.id = "missing".into();
         assert_eq!(
             store
-                .save(unknown, PasswordUpdate::Keep)
+                .save(unknown, PasswordUpdate::Keep, PasswordUpdate::Keep)
                 .await
                 .unwrap_err()
                 .kind(),
@@ -501,7 +636,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (store, secrets) = store(&dir).await;
         let saved = store
-            .save(sample(), PasswordUpdate::Set { value: "pw".into() })
+            .save(
+                sample(),
+                PasswordUpdate::Set { value: "pw".into() },
+                PasswordUpdate::Keep,
+            )
             .await
             .unwrap();
         store.delete(&saved.id).await.unwrap();
@@ -510,6 +649,87 @@ mod tests {
         assert_eq!(
             store.delete(&saved.id).await.unwrap_err().kind(),
             "not_found"
+        );
+    }
+
+    #[tokio::test]
+    async fn ssh_secret_and_host_key_are_kept_apart_from_the_database_password() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, secrets) = store(&dir).await;
+        let mut profile = sample();
+        profile.ssh = Some(SshConfig {
+            host: " bastion.example ".into(),
+            port: 22,
+            user: " deploy ".into(),
+            auth: SshAuth::Password,
+            host_key: Some("  ".into()),
+        });
+        let saved = store
+            .save(
+                profile,
+                PasswordUpdate::Set { value: "db".into() },
+                PasswordUpdate::Set {
+                    value: "ssh".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let ssh = saved.ssh.clone().unwrap();
+        assert_eq!(ssh.host, "bastion.example");
+        assert_eq!(ssh.user, "deploy");
+        assert_eq!(ssh.host_key, None);
+        assert_eq!(secrets.get(&saved.id).unwrap().as_deref(), Some("db"));
+        assert_eq!(
+            store
+                .resolve_ssh_secret(&saved, &PasswordUpdate::Keep)
+                .unwrap()
+                .as_deref(),
+            Some("ssh")
+        );
+
+        let trusted = store
+            .set_ssh_host_key(&saved.id, Some("SHA256:abc".into()))
+            .await
+            .unwrap();
+        assert_eq!(trusted.ssh.unwrap().host_key.as_deref(), Some("SHA256:abc"));
+
+        let mut without_ssh = saved.clone();
+        without_ssh.ssh = None;
+        store
+            .save(without_ssh, PasswordUpdate::Keep, PasswordUpdate::Keep)
+            .await
+            .unwrap();
+        assert_eq!(secrets.get(&ssh_secret_key(&saved.id)).unwrap(), None);
+        assert_eq!(secrets.get(&saved.id).unwrap().as_deref(), Some("db"));
+        assert_eq!(
+            store
+                .set_ssh_host_key(&saved.id, None)
+                .await
+                .unwrap_err()
+                .kind(),
+            "invalid_input"
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_incomplete_ssh_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _) = store(&dir).await;
+        let mut profile = sample();
+        profile.ssh = Some(SshConfig {
+            host: "bastion".into(),
+            port: 22,
+            user: "deploy".into(),
+            auth: SshAuth::KeyFile { path: "  ".into() },
+            host_key: None,
+        });
+        assert_eq!(
+            store
+                .save(profile, PasswordUpdate::Keep, PasswordUpdate::Keep)
+                .await
+                .unwrap_err()
+                .kind(),
+            "invalid_input"
         );
     }
 }

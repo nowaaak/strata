@@ -50,6 +50,14 @@ Read-only profiles are enforced twice: Strata refuses write statements, and the 
 
 `Required` encrypts without verifying the certificate, like libpq's `require`. It is meant for servers with self-signed certificates. `VerifyFull` checks the certificate chain and host name against the Windows certificate store. Both use `native-tls`, so Windows trust settings apply. PostgreSQL errors include their cause chain, so a server without TLS reports "server does not support TLS" instead of a bare handshake error.
 
+## SSH tunnel
+
+A profile can carry an `SshConfig`. `strata_core::ssh` uses `russh` with the `ring` backend, so no OpenSSL or system `ssh` is needed. On connect Strata opens the SSH session, binds a listener on `127.0.0.1` with a random port and forwards every accepted socket through a `direct-tcpip` channel to the database host and port as seen from the SSH server. The driver then connects to the local port. For TLS the original host name is still passed to the driver (`tls_server_name`), so certificate host name checks use the real host and not `127.0.0.1`. `Required` through the tunnel is covered by the integration tests. The tunnel lives inside the session and closes with it. If the SSH connection drops, the next socket reconnects it.
+
+Host keys follow trust on first use. The profile stores the SHA256 fingerprint of the trusted key. Without one the connect fails with `ssh_host_key_unknown` and the fingerprint in `detail`, and the UI asks the user to trust it. A different key fails with `ssh_host_key_changed` and is never accepted automatically. The user has to forget the stored key in the connection dialog first. Changing the SSH host or port in the dialog also forgets it.
+
+The SSH password or key passphrase is a second keyring entry (`{profile id}#ssh`), separate from the database password. Key files are read from disk on every connect and never copied. Integration tests in `crates/strata-core/tests/ssh.rs` run against the `ssh` service from `docker-compose.test.yml`.
+
 ## Editing
 
 Edits are only possible when the table has a primary key or a unique key without nullable columns. Rows are identified by the original key values. The backend validates that every change uses exactly that key, generates literal SQL with dialect escaping and runs everything in one transaction. Each statement must affect exactly one row, otherwise everything is rolled back. The SQL shown in the review dialog is the SQL that runs.

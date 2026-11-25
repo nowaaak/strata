@@ -43,9 +43,13 @@ impl MySqlConnection {
             TlsMode::Required => builder.ssl_opts(
                 SslOpts::default()
                     .with_danger_accept_invalid_certs(true)
-                    .with_danger_skip_domain_validation(true),
+                    .with_danger_skip_domain_validation(true)
+                    .with_danger_tls_hostname_override(params.tls_server_name.clone()),
             ),
-            TlsMode::VerifyFull => builder.ssl_opts(SslOpts::default()),
+            TlsMode::VerifyFull => builder.ssl_opts(
+                SslOpts::default()
+                    .with_danger_tls_hostname_override(params.tls_server_name.clone()),
+            ),
         };
         let opts = Opts::from(builder);
         let mut conn = Conn::new(opts.clone()).await.map_err(map_error)?;

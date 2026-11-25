@@ -45,8 +45,19 @@ fn tls_connector(mode: TlsMode) -> Result<MakeTlsConnector, DbError> {
 impl PgConnection {
     pub async fn connect(params: &ConnectParams) -> Result<Self, DbError> {
         let mut config = Config::new();
+        match &params.tls_server_name {
+            Some(server_name) => {
+                config.host(server_name);
+                let address = params.host.parse::<std::net::IpAddr>().map_err(|err| {
+                    DbError::message(format!("tunnel address {} is invalid: {err}", params.host))
+                })?;
+                config.hostaddr(address);
+            }
+            None => {
+                config.host(&params.host);
+            }
+        }
         config
-            .host(&params.host)
             .port(params.port)
             .user(&params.user)
             .dbname(params.database.as_deref().unwrap_or(DEFAULT_DATABASE))

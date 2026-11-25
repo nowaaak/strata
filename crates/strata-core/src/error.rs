@@ -38,6 +38,16 @@ pub enum CoreError {
 
     #[error("another query is still running in this tab")]
     Busy,
+
+    #[error("unknown SSH host key {fingerprint} for {host}")]
+    SshHostKeyUnknown { host: String, fingerprint: String },
+
+    #[error("the SSH host key of {host} changed to {fingerprint}, the trusted key is {expected}")]
+    SshHostKeyChanged {
+        host: String,
+        expected: String,
+        fingerprint: String,
+    },
 }
 
 impl CoreError {
@@ -52,6 +62,16 @@ impl CoreError {
             Self::NotFound(_) => "not_found",
             Self::ReadOnly(_) => "read_only",
             Self::Busy => "busy",
+            Self::SshHostKeyUnknown { .. } => "ssh_host_key_unknown",
+            Self::SshHostKeyChanged { .. } => "ssh_host_key_changed",
+        }
+    }
+
+    pub fn detail(&self) -> Option<String> {
+        match self {
+            Self::SshHostKeyUnknown { fingerprint, .. }
+            | Self::SshHostKeyChanged { fingerprint, .. } => Some(fingerprint.clone()),
+            _ => None,
         }
     }
 

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConnectionDialog } from "@/features/connections/ConnectionDialog";
+import { HostKeyDialog } from "@/features/connections/HostKeyDialog";
 import { PasswordDialog } from "@/features/connections/PasswordDialog";
 import { CommandPalette } from "@/features/palette/CommandPalette";
 import { HistoryDialog } from "@/features/history/HistoryDialog";
@@ -39,6 +40,7 @@ function AppShell() {
             <AppLayout />
             <ConnectionDialog />
             <PasswordDialog />
+            <HostKeyDialog />
             <CommandPalette />
             <SettingsDialog />
             <HistoryDialog />

@@ -4,11 +4,13 @@ import { friendlyMessage } from "./errors";
 
 export class AppError extends Error {
     readonly kind: string;
+    readonly detail: string | null;
 
-    constructor(kind: string, message: string) {
+    constructor(kind: string, message: string, detail: string | null = null) {
         super(message);
         this.name = "AppError";
         this.kind = kind;
+        this.detail = detail;
     }
 }
 
@@ -28,7 +30,7 @@ export async function call<T>(command: string, args?: InvokeArgs): Promise<T> {
         return await invoke<T>(command, args);
     } catch (error) {
         if (isCommandError(error)) {
-            throw new AppError(error.kind, error.message);
+            throw new AppError(error.kind, error.message, error.detail ?? null);
         }
         throw new AppError("internal", String(error));
     }

@@ -60,3 +60,25 @@ services:
       interval: 2s
       timeout: 5s
       retries: 60
+
+  ssh:
+    build:
+      dockerfile_inline: |
+        FROM alpine:3.20
+        RUN apk add --no-cache openssh \
+            && ssh-keygen -A \
+            && adduser -D tunnel \
+            && echo "tunnel:strata" | chpasswd \
+            && sed -i -e 's/^#\?AllowTcpForwarding.*/AllowTcpForwarding yes/' \
+                -e 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config \
+            && mkdir -p /home/tunnel/.ssh /keys \
+            && ssh-keygen -q -t ed25519 -N "" -f /keys/client \
+            && ssh-keygen -q -t ed25519 -N "geheim" -f /keys/client_protected \
+            && cat /keys/client.pub /keys/client_protected.pub > /home/tunnel/.ssh/authorized_keys \
+            && chown -R tunnel:tunnel /home/tunnel/.ssh \
+            && chmod 700 /home/tunnel/.ssh \
+            && chmod 600 /home/tunnel/.ssh/authorized_keys \
+            && chmod 644 /keys/client /keys/client_protected
+        CMD ["/usr/sbin/sshd", "-D", "-e"]
+    ports:
+      - "127.0.0.1:2222:22"

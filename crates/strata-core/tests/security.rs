@@ -21,6 +21,7 @@ fn params(server: Server, tls: TlsMode, read_only: bool) -> ConnectParams {
         database: Some("strata".into()),
         tls,
         read_only,
+        tls_server_name: None,
     }
 }
 

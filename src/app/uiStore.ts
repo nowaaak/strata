@@ -25,10 +25,18 @@ function storeCollapsedGroups(groups: string[]) {
 
 export type HistoryDialogState = { profileId: string | null; tabId: string | null } | null;
 
+export type HostKeyPrompt = {
+    profile: ConnectionProfile;
+    fingerprint: string;
+    password: string | null;
+} | null;
+
 type UiState = {
     paletteOpen: boolean;
     historyDialog: HistoryDialogState;
     setHistoryDialog: (state: HistoryDialogState) => void;
+    hostKeyPrompt: HostKeyPrompt;
+    setHostKeyPrompt: (prompt: HostKeyPrompt) => void;
     settingsOpen: boolean;
     connectionDialog: ConnectionDialogState;
     passwordPrompt: ConnectionProfile | null;
@@ -51,6 +59,8 @@ export const useUiStore = create<UiState>((set, get) => ({
     paletteOpen: false,
     historyDialog: null,
     setHistoryDialog: (historyDialog) => set({ historyDialog, paletteOpen: false }),
+    hostKeyPrompt: null,
+    setHostKeyPrompt: (hostKeyPrompt) => set({ hostKeyPrompt }),
     settingsOpen: false,
     connectionDialog: null,
     passwordPrompt: null,

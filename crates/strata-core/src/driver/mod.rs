@@ -107,6 +107,7 @@ pub struct ConnectParams {
     pub database: Option<String>,
     pub tls: TlsMode,
     pub read_only: bool,
+    pub tls_server_name: Option<String>,
 }
 
 pub enum Connection {

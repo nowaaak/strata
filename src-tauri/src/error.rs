@@ -7,6 +7,7 @@ use ts_rs::TS;
 pub struct CommandError {
     pub kind: String,
     pub message: String,
+    pub detail: Option<String>,
 }
 
 impl From<CoreError> for CommandError {
@@ -19,6 +20,7 @@ impl From<CoreError> for CommandError {
         Self {
             kind: err.kind().into(),
             message: err.to_string(),
+            detail: err.detail(),
         }
     }
 }

@@ -17,6 +17,7 @@ use crate::sql::{
     Dialect, RowChange, SqlStatement, TableQuery, change_statement, select_statement,
     split_statements,
 };
+use crate::ssh::SshTunnel;
 use crate::{CoreError, CoreResult};
 
 pub const QUERY_ROW_CAP: usize = 1_000_000;
@@ -120,13 +121,34 @@ impl SessionManager {
         &self,
         profile: &ConnectionProfile,
         password: &PasswordUpdate,
+        ssh_secret: &PasswordUpdate,
     ) -> CoreResult<ServerDetails> {
         let password = self.profiles.resolve_password(profile, password)?;
-        let params = connect_params(profile, password, profile.database.clone());
+        let tunnel = self.tunnel(profile, ssh_secret).await?;
+        let params = connect_params(
+            profile,
+            password,
+            profile.database.clone(),
+            tunnel.as_ref().map(SshTunnel::local_port),
+        );
         let conn = Connection::connect(&params).await?;
         let details = conn.details().clone();
         conn.close().await;
         Ok(details)
+    }
+
+    async fn tunnel(
+        &self,
+        profile: &ConnectionProfile,
+        ssh_secret: &PasswordUpdate,
+    ) -> CoreResult<Option<SshTunnel>> {
+        let Some(ssh) = profile.ssh.clone() else {
+            return Ok(None);
+        };
+        let secret = self.profiles.resolve_ssh_secret(profile, ssh_secret)?;
+        SshTunnel::open(ssh, secret, profile.host.clone(), profile.port)
+            .await
+            .map(Some)
     }
 
     pub async fn open(
@@ -141,10 +163,12 @@ impl SessionManager {
                 .profiles
                 .resolve_password(&profile, &PasswordUpdate::Keep)?,
         };
+        let tunnel = self.tunnel(&profile, &PasswordUpdate::Keep).await?;
         let conn = Connection::connect(&connect_params(
             &profile,
             password.clone(),
             profile.database.clone(),
+            tunnel.as_ref().map(SshTunnel::local_port),
         ))
         .await?;
         let details = conn.details().clone();
@@ -157,6 +181,7 @@ impl SessionManager {
             details,
             dialect,
             meta: tokio::sync::Mutex::new(HashMap::from([(meta_key, conn)])),
+            tunnel,
             tabs: Mutex::new(HashMap::new()),
         });
         let info = session.info();
@@ -206,16 +231,22 @@ fn connect_params(
     profile: &ConnectionProfile,
     password: Option<String>,
     database: Option<String>,
+    tunnel_port: Option<u16>,
 ) -> ConnectParams {
+    let (host, port, tls_server_name) = match tunnel_port {
+        Some(port) => ("127.0.0.1".to_string(), port, Some(profile.host.clone())),
+        None => (profile.host.clone(), profile.port, None),
+    };
     ConnectParams {
         engine: profile.engine,
-        host: profile.host.clone(),
-        port: profile.port,
+        host,
+        port,
         user: profile.user.clone(),
         password,
         database,
         tls: profile.tls,
         read_only: profile.safety == Safety::ReadOnly,
+        tls_server_name,
     }
 }
 
@@ -239,6 +270,7 @@ pub struct Session {
     details: ServerDetails,
     dialect: Dialect,
     meta: tokio::sync::Mutex<HashMap<String, Connection>>,
+    tunnel: Option<SshTunnel>,
     tabs: Mutex<HashMap<String, Arc<Tab>>>,
 }
 
@@ -270,7 +302,12 @@ impl Session {
     }
 
     fn params(&self, database: Option<String>) -> ConnectParams {
-        connect_params(&self.profile, self.password.clone(), database)
+        connect_params(
+            &self.profile,
+            self.password.clone(),
+            database,
+            self.tunnel.as_ref().map(SshTunnel::local_port),
+        )
     }
 
     async fn shutdown(&self) {

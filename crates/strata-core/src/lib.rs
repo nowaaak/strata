@@ -10,6 +10,7 @@ pub mod secrets;
 pub mod session;
 pub mod settings;
 pub mod sql;
+pub mod ssh;
 pub mod workspace;
 
 pub use error::{CoreError, CoreResult};

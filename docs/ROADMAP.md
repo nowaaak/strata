@@ -16,7 +16,6 @@ Goal: the everyday HeidiSQL tasks work without falling back to another tool.
 
 | Item                                                                                             | Why                                                                      | Effort |
 | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ------ |
-| SSH tunnel per connection                                                                        | Most remote databases are only reachable through SSH.                    | L      |
 | Create, rename, truncate and drop databases and tables, each with a confirmation and SQL preview | Today this needs hand written SQL.                                       | M      |
 | Schema editor with generated `ALTER TABLE` and preview                                           | Adding a column or index is a common task and easy to get wrong by hand. | L      |
 | Views, routines, triggers and events in the tree, with their DDL                                 | The tree only shows tables and views.                                    | M      |
@@ -55,6 +54,7 @@ Goal: the everyday HeidiSQL tasks work without falling back to another tool.
 - Open tabs and SQL drafts survive a restart and a disconnect. They reattach when their connection opens again.
 - Searchable query history per connection or across all connections (Ctrl+H), with reuse in the editor or a new tab. It can be turned off in the settings.
 - Daily rotating log file in the app data folder, kept for 7 days, without SQL text or passwords.
+- SSH tunnel per connection with password or key file, trust on first use for server keys and a hard stop on changed keys. Tested against MySQL and PostgreSQL, including TLS and query cancel through the tunnel.
 - Verified against real servers: TLS in all three modes for MySQL, MariaDB and PostgreSQL, server side read-only sessions block inserts and DDL on all three, password prompt on connect, MariaDB through the UI, copy to clipboard. The native save dialog is still only exercised by hand.
 
 ## Known limitations
