@@ -40,7 +40,11 @@ import { cancelRun, runTable, useRuns } from "@/features/result-grid/runStore";
 import { useResultCache } from "@/features/result-grid/useResultCache";
 import { DEFAULT_SETTINGS, ROW_LIMITS, withOption } from "@/features/settings/theme";
 import { useSettings } from "@/features/settings/useSettings";
-import { useWorkspace, type TableTab as TableTabModel } from "@/features/workspace/workspaceStore";
+import {
+    useWorkspace,
+    type Attached,
+    type TableTab as TableTabModel,
+} from "@/features/workspace/workspaceStore";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { CellDialog, type CellDialogState } from "./CellDialog";
@@ -58,7 +62,7 @@ import {
 type View = "data" | "structure" | "ddl";
 const VIEWS: View[] = ["data", "structure", "ddl"];
 
-export function TableTab({ tab }: { tab: TableTabModel }) {
+export function TableTab({ tab }: { tab: Attached<TableTabModel> }) {
     const t = useT();
     const text = t.table;
     const queryClient = useQueryClient();

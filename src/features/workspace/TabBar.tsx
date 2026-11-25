@@ -1,4 +1,4 @@
-import { FileCode2Icon, Loader2Icon, PlusIcon, Table2Icon, XIcon } from "lucide-react";
+import { FileCode2Icon, Loader2Icon, PlusIcon, Table2Icon, UnplugIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { closeWorkspaceTab } from "@/features/connections/connect";
@@ -28,7 +28,12 @@ export function TabBar() {
                     const selected = tab.id === activeTabId;
                     const profile = profiles.find((candidate) => candidate.id === tab.profileId);
                     const running = runs[tab.id]?.running ?? false;
-                    const Icon = tab.kind === "table" ? Table2Icon : FileCode2Icon;
+                    const detached = tab.sessionId === null;
+                    const Icon = detached
+                        ? UnplugIcon
+                        : tab.kind === "table"
+                          ? Table2Icon
+                          : FileCode2Icon;
                     const title = tabTitle(tab, t);
                     return (
                         <div
@@ -70,7 +75,9 @@ export function TabBar() {
                                 ) : (
                                     <Icon className="size-3.5 shrink-0" aria-hidden />
                                 )}
-                                <span className="truncate">{title}</span>
+                                <span className={cn("truncate", detached && "italic opacity-70")}>
+                                    {title}
+                                </span>
                             </button>
                             <button
                                 type="button"
@@ -87,7 +94,7 @@ export function TabBar() {
                     );
                 })}
             </div>
-            {active && (
+            {active?.sessionId && (
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <Button
@@ -100,7 +107,11 @@ export function TabBar() {
                                     active.kind === "query"
                                         ? active.database
                                         : active.target.database;
-                                useWorkspace.getState().openQueryTab(active.sessionId, database);
+                                if (active.sessionId) {
+                                    useWorkspace
+                                        .getState()
+                                        .openQueryTab(active.sessionId, database);
+                                }
                             }}
                         >
                             <PlusIcon />

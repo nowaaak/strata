@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import type { SavedTab } from "@/bindings/SavedTab";
+import type { SavedWorkspace } from "@/bindings/SavedWorkspace";
 import type { SessionInfo } from "@/bindings/SessionInfo";
 import type { TableTarget } from "@/bindings/TableTarget";
 import type { Messages } from "@/i18n";
@@ -6,7 +8,7 @@ import type { Messages } from "@/i18n";
 export type QueryTab = {
     id: string;
     kind: "query";
-    sessionId: string;
+    sessionId: string | null;
     profileId: string;
     number: number;
     database: string | null;
@@ -16,7 +18,7 @@ export type QueryTab = {
 export type TableTab = {
     id: string;
     kind: "table";
-    sessionId: string;
+    sessionId: string | null;
     profileId: string;
     title: string;
     target: TableTarget;
@@ -24,17 +26,23 @@ export type TableTab = {
 
 export type WorkspaceTab = QueryTab | TableTab;
 
+export type Attached<T extends WorkspaceTab> = T & { sessionId: string };
+
 export function tabTitle(tab: WorkspaceTab, t: Messages): string {
     return tab.kind === "query" ? t.app.tabs.queryTitle(tab.number) : tab.title;
 }
 
 type WorkspaceState = {
+    hydrated: boolean;
     sessions: Record<string, SessionInfo>;
     tabs: WorkspaceTab[];
     activeTabId: string | null;
     queryCounter: number;
+    hydrate: (saved: SavedWorkspace) => void;
     addSession: (session: SessionInfo) => void;
+    attachProfile: (profileId: string, sessionId: string) => number;
     removeSession: (sessionId: string) => WorkspaceTab[];
+    removeProfileTabs: (profileId: string) => void;
     openQueryTab: (sessionId: string, database: string | null, sql?: string) => string | null;
     openTableTab: (sessionId: string, target: TableTarget) => string | null;
     closeTab: (tabId: string) => WorkspaceTab | undefined;
@@ -50,28 +58,76 @@ function neighbour(tabs: WorkspaceTab[], index: number): string | null {
     return (tabs[index] ?? tabs[index - 1])?.id ?? null;
 }
 
+function fromSaved(tab: SavedTab): WorkspaceTab {
+    return { ...tab, sessionId: null };
+}
+
+export function toSaved(
+    state: Pick<WorkspaceState, "tabs" | "activeTabId" | "queryCounter">,
+): SavedWorkspace {
+    return {
+        tabs: state.tabs.map((tab): SavedTab => {
+            if (tab.kind === "query") {
+                const { id, profileId, number, database, sql } = tab;
+                return { kind: "query", id, profileId, number, database, sql };
+            }
+            const { id, profileId, title, target } = tab;
+            return { kind: "table", id, profileId, title, target };
+        }),
+        activeTabId: state.activeTabId,
+        queryCounter: state.queryCounter,
+    };
+}
+
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
+    hydrated: false,
     sessions: {},
     tabs: [],
     activeTabId: null,
     queryCounter: 0,
 
+    hydrate: (saved) => {
+        const tabs = saved.tabs.map(fromSaved);
+        const active = tabs.some((tab) => tab.id === saved.activeTabId)
+            ? saved.activeTabId
+            : (tabs.at(-1)?.id ?? null);
+        set({ hydrated: true, tabs, activeTabId: active, queryCounter: saved.queryCounter });
+    },
+
     addSession: (session) =>
         set((state) => ({ sessions: { ...state.sessions, [session.sessionId]: session } })),
 
+    attachProfile: (profileId, sessionId) => {
+        set((state) => ({
+            tabs: state.tabs.map((tab) =>
+                tab.profileId === profileId ? { ...tab, sessionId } : tab,
+            ),
+        }));
+        return get().tabs.filter((tab) => tab.profileId === profileId).length;
+    },
+
     removeSession: (sessionId) => {
         const state = get();
-        const removed = state.tabs.filter((tab) => tab.sessionId === sessionId);
-        const tabs = state.tabs.filter((tab) => tab.sessionId !== sessionId);
+        const detached = state.tabs.filter((tab) => tab.sessionId === sessionId);
         const sessions = { ...state.sessions };
         delete sessions[sessionId];
-        const activeStillOpen = tabs.some((tab) => tab.id === state.activeTabId);
         set({
             sessions,
+            tabs: state.tabs.map((tab) =>
+                tab.sessionId === sessionId ? { ...tab, sessionId: null } : tab,
+            ),
+        });
+        return detached;
+    },
+
+    removeProfileTabs: (profileId) => {
+        const state = get();
+        const tabs = state.tabs.filter((tab) => tab.profileId !== profileId);
+        const activeStillOpen = tabs.some((tab) => tab.id === state.activeTabId);
+        set({
             tabs,
             activeTabId: activeStillOpen ? state.activeTabId : (tabs.at(-1)?.id ?? null),
         });
-        return removed;
     },
 
     openQueryTab: (sessionId, database, sql = "") => {
@@ -106,11 +162,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         const existing = state.tabs.find(
             (tab) =>
                 tab.kind === "table" &&
-                tab.sessionId === sessionId &&
+                tab.profileId === session.profileId &&
                 sameTarget(tab.target, target),
         );
         if (existing) {
-            set({ activeTabId: existing.id });
+            set({
+                activeTabId: existing.id,
+                tabs: state.tabs.map((tab) =>
+                    tab.id === existing.id ? { ...tab, sessionId } : tab,
+                ),
+            });
             return existing.id;
         }
         const tab: TableTab = {

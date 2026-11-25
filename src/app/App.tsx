@@ -1,12 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useRestoreSessions } from "@/features/connections/connect";
 import { ConnectionDialog } from "@/features/connections/ConnectionDialog";
 import { PasswordDialog } from "@/features/connections/PasswordDialog";
 import { CommandPalette } from "@/features/palette/CommandPalette";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { useApplySettings, useResolvedTheme } from "@/features/settings/useThemeSync";
+import { useWorkspaceStartup } from "@/features/workspace/persistence";
 import { AppLayout } from "./AppLayout";
 
 const queryClient = new QueryClient({
@@ -31,7 +31,7 @@ export function App() {
 function AppShell() {
     const theme = useResolvedTheme();
     useApplySettings();
-    useRestoreSessions();
+    useWorkspaceStartup();
 
     return (
         <>

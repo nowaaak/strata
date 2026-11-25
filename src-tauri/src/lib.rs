@@ -8,6 +8,7 @@ use strata_core::profiles::ProfileStore;
 use strata_core::secrets::KeyringStore;
 use strata_core::session::SessionManager;
 use strata_core::settings::SettingsStore;
+use strata_core::workspace::WorkspaceStore;
 use tauri::Manager;
 use tracing_subscriber::EnvFilter;
 
@@ -15,6 +16,7 @@ use crate::state::AppState;
 
 const SETTINGS_FILE: &str = "settings.json";
 const PROFILES_FILE: &str = "profiles.json";
+const WORKSPACE_FILE: &str = "workspace.json";
 
 pub fn run() {
     init_logging();
@@ -31,6 +33,7 @@ pub fn run() {
                 Ok::<_, strata_core::CoreError>(AppState {
                     settings,
                     sessions: SessionManager::new(profiles.clone()),
+                    workspace: WorkspaceStore::new(data_dir.join(WORKSPACE_FILE)),
                     profiles,
                 })
             })?;
@@ -64,6 +67,8 @@ pub fn run() {
             commands::query::export_result,
             commands::edit::preview_changes,
             commands::edit::apply_changes,
+            commands::workspace::load_workspace,
+            commands::workspace::save_workspace,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {

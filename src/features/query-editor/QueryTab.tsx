@@ -36,6 +36,7 @@ import { cancelRun, runSql, useRuns } from "@/features/result-grid/runStore";
 import {
     tabTitle,
     useWorkspace,
+    type Attached,
     type QueryTab as QueryTabModel,
 } from "@/features/workspace/workspaceStore";
 import { clearError, showError, SqlEditor } from "./SqlEditor";
@@ -58,7 +59,7 @@ function namespace(tables: CompletionTable[] | undefined): SQLNamespace | undefi
 
 type PendingRun = { sql: string; base: number; writes: SqlStatement[] };
 
-export function QueryTab({ tab }: { tab: QueryTabModel }) {
+export function QueryTab({ tab }: { tab: Attached<QueryTabModel> }) {
     const t = useT();
     const queryClient = useQueryClient();
     const session = useWorkspace((state) => state.sessions[tab.sessionId]);

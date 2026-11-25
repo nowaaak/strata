@@ -1,9 +1,25 @@
 import { QueryTab } from "@/features/query-editor/QueryTab";
 import { TableTab } from "@/features/table-view/TableTab";
+import { useT } from "@/i18n";
+import { DisconnectedTab } from "./DisconnectedTab";
 import { TabBar } from "./TabBar";
 import { WelcomePanel } from "./WelcomePanel";
-import { useT } from "@/i18n";
-import { tabTitle, useWorkspace } from "./workspaceStore";
+import { tabTitle, useWorkspace, type WorkspaceTab } from "./workspaceStore";
+
+function TabContent({ tab }: { tab: WorkspaceTab }) {
+    const connected = useWorkspace((state) =>
+        tab.sessionId ? state.sessions[tab.sessionId] !== undefined : false,
+    );
+    const sessionId = tab.sessionId;
+    if (!connected || !sessionId) {
+        return <DisconnectedTab tab={tab} />;
+    }
+    return tab.kind === "query" ? (
+        <QueryTab tab={{ ...tab, sessionId }} />
+    ) : (
+        <TableTab tab={{ ...tab, sessionId }} />
+    );
+}
 
 export function Workspace() {
     const t = useT();
@@ -26,7 +42,7 @@ export function Workspace() {
                         hidden={tab.id !== activeTabId}
                         className="absolute inset-0"
                     >
-                        {tab.kind === "query" ? <QueryTab tab={tab} /> : <TableTab tab={tab} />}
+                        <TabContent tab={tab} />
                     </div>
                 ))}
             </div>

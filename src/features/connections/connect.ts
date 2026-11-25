@@ -1,9 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "@/api/invoke";
 import { closeTab } from "@/api/query";
-import { closeSession, listSessions, openSession } from "@/api/sessions";
+import { closeSession, openSession } from "@/api/sessions";
 import { treeKey, useUiStore } from "@/app/uiStore";
 import type { ConnectionProfile } from "@/bindings/ConnectionProfile";
 import { useRuns } from "@/features/result-grid/runStore";
@@ -25,7 +24,7 @@ export async function connectProfile(profile: ConnectionProfile, password: strin
                 ui.setExpanded(treeKey.schema(session.sessionId, database, "public"), true);
             }
         }
-        if (!workspace.tabs.some((tab) => tab.profileId === profile.id)) {
+        if (workspace.attachProfile(profile.id, session.sessionId) === 0) {
             workspace.openQueryTab(session.sessionId, database);
         }
         return session;
@@ -37,23 +36,6 @@ export async function connectProfile(profile: ConnectionProfile, password: strin
     } finally {
         useUiStore.getState().setConnecting(profile.id, false);
     }
-}
-
-export function useRestoreSessions() {
-    useEffect(() => {
-        listSessions()
-            .then((sessions) => {
-                const workspace = useWorkspace.getState();
-                for (const session of sessions) {
-                    workspace.addSession(session);
-                }
-            })
-            .catch((error: unknown) =>
-                toast.error(getT().connections.toast.restoreFailed, {
-                    description: errorMessage(error),
-                }),
-            );
-    }, []);
 }
 
 export function requestConnect(profile: ConnectionProfile) {
@@ -70,6 +52,9 @@ export function closeWorkspaceTab(tabId: string) {
         return;
     }
     useRuns.getState().forget(tabId);
+    if (!tab.sessionId) {
+        return;
+    }
     closeTab(tab.sessionId, tab.id).catch((error: unknown) =>
         toast.error(getT().app.tabs.closeFailed, {
             description: errorMessage(error),

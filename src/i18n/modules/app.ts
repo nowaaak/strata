@@ -23,6 +23,16 @@ export const de = {
         queryTitle: (counter: number) => `Abfrage ${counter}`,
         closeFailed: "Tab konnte nicht sauber geschlossen werden",
     },
+    workspace: {
+        disconnected: "Nicht verbunden",
+        disconnectedText: (name: string) =>
+            `„${name}“ ist getrennt. Der Tab bleibt erhalten und läuft weiter, sobald du verbindest.`,
+        connect: "Verbinden",
+        missingProfile: "Das Verbindungsprofil dieses Tabs existiert nicht mehr.",
+        closeTab: "Tab schließen",
+        loadFailed: "Gespeicherte Tabs konnten nicht geladen werden",
+        saveFailed: "Tabs konnten nicht gespeichert werden",
+    },
 };
 
 export const en: typeof de = {
@@ -49,5 +59,15 @@ export const en: typeof de = {
         newQueryHint: "New query (Ctrl+T)",
         queryTitle: (counter: number) => `Query ${counter}`,
         closeFailed: "The tab could not be closed cleanly",
+    },
+    workspace: {
+        disconnected: "Not connected",
+        disconnectedText: (name: string) =>
+            `“${name}” is disconnected. The tab is kept and continues once you connect.`,
+        connect: "Connect",
+        missingProfile: "The connection profile of this tab no longer exists.",
+        closeTab: "Close tab",
+        loadFailed: "Saved tabs could not be loaded",
+        saveFailed: "Tabs could not be saved",
     },
 };

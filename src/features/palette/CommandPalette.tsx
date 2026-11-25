@@ -142,7 +142,8 @@ function useCommands(): Command[] {
                 run: () => useUiStore.getState().setSettingsOpen(true),
             },
         );
-        if (activeTab) {
+        const activeSession = activeTab?.sessionId;
+        if (activeTab && activeSession) {
             commands.push({
                 id: "new-query",
                 label: text.newQueryHere,
@@ -153,7 +154,7 @@ function useCommands(): Command[] {
                     useWorkspace
                         .getState()
                         .openQueryTab(
-                            activeTab.sessionId,
+                            activeSession,
                             activeTab.kind === "query"
                                 ? activeTab.database
                                 : activeTab.target.database,

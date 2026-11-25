@@ -420,6 +420,7 @@ function DeleteProfileDialog({
                 await disconnect(session.sessionId);
             }
             await deleteProfile(target.id);
+            useWorkspace.getState().removeProfileTabs(target.id);
         },
         onSuccess: () => {
             void queryClient.invalidateQueries({ queryKey: profilesKey });

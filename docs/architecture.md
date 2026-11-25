@@ -68,6 +68,12 @@ All interface text lives in `src/i18n/modules`. The English messages are typed a
 
 A group is an optional name on the profile, not a separate entity. Renaming or dissolving a group rewrites the profiles in one atomic file write. Collapsed groups are a per user convenience kept in `localStorage`.
 
+## Workspace persistence
+
+Open tabs, SQL drafts, the active tab and the query counter are saved to `workspace.json` in the app data folder, 400 ms after the last change and whenever the window loses focus or unloads. A file is used instead of `localStorage` because drafts can be large. Saving only starts after the file was loaded, so a failed load can never overwrite it. An unreadable file is renamed to `workspace.json.corrupt` and the app starts empty.
+
+Tabs store the profile, not the session. After a restart or a disconnect they are detached, show their draft read-only and offer to connect. When the profile connects, every tab of that profile is attached to the new session, and no extra query tab is opened.
+
 ## Frontend state
 
 Zustand stores hold the workspace (sessions, tabs) and query runs. A run is reduced from channel events by the pure function `reduceRun`. TanStack Query caches schema metadata with keys of the form `[kind, sessionId, ...]`, so disconnecting removes all of a session's data at once. After a WebView reload the frontend asks the backend for open sessions and restores them.
