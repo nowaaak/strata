@@ -1,0 +1,41 @@
+name: strata-test
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: strata
+      MYSQL_DATABASE: strata
+    ports:
+      - "127.0.0.1:33306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-pstrata"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+  mariadb:
+    image: mariadb:11.4
+    environment:
+      MARIADB_ROOT_PASSWORD: strata
+      MARIADB_DATABASE: strata
+    ports:
+      - "127.0.0.1:33307:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: strata
+      POSTGRES_DB: strata
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "strata"]
+      interval: 2s
+      timeout: 5s
+      retries: 60

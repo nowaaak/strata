@@ -1,0 +1,22 @@
+import type { CompletionTable } from "@/bindings/CompletionTable";
+import type { DbObject } from "@/bindings/DbObject";
+import type { TableInfo } from "@/bindings/TableInfo";
+import type { TableTarget } from "@/bindings/TableTarget";
+import { call } from "./invoke";
+
+export const listDatabases = (sessionId: string) => call<string[]>("list_databases", { sessionId });
+
+export const listSchemas = (sessionId: string, database: string) =>
+    call<string[]>("list_schemas", { sessionId, database });
+
+export const listObjects = (sessionId: string, database: string, schema: string | null) =>
+    call<DbObject[]>("list_objects", { sessionId, database, schema });
+
+export const describeTable = (sessionId: string, target: TableTarget) =>
+    call<TableInfo>("describe_table", { sessionId, target });
+
+export const tableDdl = (sessionId: string, target: TableTarget) =>
+    call<string>("table_ddl", { sessionId, target });
+
+export const completionSchema = (sessionId: string, database: string) =>
+    call<CompletionTable[]>("completion_schema", { sessionId, database });

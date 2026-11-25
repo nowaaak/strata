@@ -1,0 +1,33 @@
+export const de = {
+    loadingDatabases: "Lade Datenbanken…",
+    loadingSchemas: "Lade Schemas…",
+    loadingTables: "Lade Tabellen…",
+    noMatches: "Keine Treffer",
+    noTables: "Keine Tabellen",
+    newQueryHere: "Neue Abfrage hier",
+    refresh: "Aktualisieren",
+    copyName: "Namen kopieren",
+    copyDdl: "DDL kopieren",
+    name: "Name",
+    ddl: "DDL",
+    ddlFailed: "DDL konnte nicht geladen werden",
+    showData: "Daten anzeigen",
+    selectInNewQuery: "SELECT in neuer Abfrage",
+};
+
+export const en: typeof de = {
+    loadingDatabases: "Loading databases…",
+    loadingSchemas: "Loading schemas…",
+    loadingTables: "Loading tables…",
+    noMatches: "No matches",
+    noTables: "No tables",
+    newQueryHere: "New query here",
+    refresh: "Refresh",
+    copyName: "Copy name",
+    copyDdl: "Copy DDL",
+    name: "Name",
+    ddl: "DDL",
+    ddlFailed: "The DDL could not be loaded",
+    showData: "Show data",
+    selectInNewQuery: "SELECT in new query",
+};

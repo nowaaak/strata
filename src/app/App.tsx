@@ -1,0 +1,46 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { useRestoreSessions } from "@/features/connections/connect";
+import { ConnectionDialog } from "@/features/connections/ConnectionDialog";
+import { PasswordDialog } from "@/features/connections/PasswordDialog";
+import { CommandPalette } from "@/features/palette/CommandPalette";
+import { SettingsDialog } from "@/features/settings/SettingsDialog";
+import { useApplySettings, useResolvedTheme } from "@/features/settings/useThemeSync";
+import { AppLayout } from "./AppLayout";
+
+const queryClient = new QueryClient({
+    defaultOptions: {
+        queries: {
+            retry: 1,
+            refetchOnWindowFocus: false,
+        },
+    },
+});
+
+export function App() {
+    return (
+        <QueryClientProvider client={queryClient}>
+            <TooltipProvider delayDuration={300}>
+                <AppShell />
+            </TooltipProvider>
+        </QueryClientProvider>
+    );
+}
+
+function AppShell() {
+    const theme = useResolvedTheme();
+    useApplySettings();
+    useRestoreSessions();
+
+    return (
+        <>
+            <AppLayout />
+            <ConnectionDialog />
+            <PasswordDialog />
+            <CommandPalette />
+            <SettingsDialog />
+            <Toaster theme={theme} position="bottom-right" />
+        </>
+    );
+}
