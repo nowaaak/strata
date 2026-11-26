@@ -10,6 +10,7 @@ use crate::driver::{
     CancelHandle, ColumnMeta, ConnectParams, Connection, DbError, Row, RowSink, ServerDetails,
     SinkFlow,
 };
+use crate::processes::{self, KillMode, ProcessInfo};
 use crate::profiles::{ConnectionProfile, Engine, PasswordUpdate, ProfileStore, Safety};
 use crate::result::ResultSet;
 use crate::schema::{self, CompletionTable, DbObject, TableInfo, TableTarget};
@@ -431,6 +432,34 @@ impl Session {
             _ if affected == "postgres" => "template1".to_string(),
             _ => "postgres".to_string(),
         }
+    }
+
+    pub async fn list_processes(&self) -> CoreResult<Vec<ProcessInfo>> {
+        let rows = self
+            .meta_rows(None, processes::processes_sql(self.dialect))
+            .await?;
+        Ok(processes::parse_processes(self.dialect, rows))
+    }
+
+    pub async fn kill_process(&self, id: &str, mode: KillMode) -> CoreResult<()> {
+        if self.read_only() {
+            return Err(CoreError::ReadOnly(
+                "this connection is read-only, processes cannot be stopped".into(),
+            ));
+        }
+        let sql = processes::kill_sql(self.dialect, id, mode)?;
+        let rows = self.meta_rows(None, &sql).await?;
+        let confirmed = self.dialect.is_mysql()
+            || rows
+                .first()
+                .and_then(|row| row.first())
+                .is_some_and(|value| value.as_deref() == Some("t"));
+        if !confirmed {
+            return Err(CoreError::Database(format!(
+                "process {id} could not be stopped, it may have ended already"
+            )));
+        }
+        Ok(())
     }
 
     pub async fn list_databases(&self) -> CoreResult<Vec<String>> {

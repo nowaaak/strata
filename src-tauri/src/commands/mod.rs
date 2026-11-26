@@ -1,6 +1,7 @@
 pub mod ddl;
 pub mod edit;
 pub mod history;
+pub mod processes;
 pub mod profiles;
 pub mod query;
 pub mod schema;

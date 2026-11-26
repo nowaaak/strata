@@ -66,6 +66,16 @@ Changes run on the metadata connection, never in a tab, so they cannot end up in
 
 Creating a table opens a query tab with a `CREATE TABLE` template instead of a form. A column editor belongs to the planned schema editor.
 
+## Process list
+
+`list_processes` reads `information_schema.PROCESSLIST` on MySQL and MariaDB and `pg_stat_activity` (client backends only) on PostgreSQL, through the metadata connection. That connection marks itself as `own`, so the UI can label it and refuse to stop it. `kill_process` only accepts a numeric id and builds `KILL QUERY`, `KILL CONNECTION`, `pg_cancel_backend` or `pg_terminate_backend` from it. Read-only profiles can view the list but not stop anything. On PostgreSQL a `false` result means the process was not stopped and becomes an error. An interrupted `SLEEP()` ends without an error on MySQL and with error 1317 on MariaDB, both count as stopped.
+
+## SQL formatting and JSON values
+
+The editor formats with `sql-formatter` in the dialect of the session (MySQL, MariaDB or PostgreSQL): uppercase keywords and data types, four spaces. Without a selection it formats the whole script, otherwise only the selection, as one undoable change.
+
+JSON in the cell editor is never passed through `JSON.parse` and `JSON.stringify` for display or saving, because that would round large integers and drop trailing zeros such as `1.10`. `lib/json.ts` reformats on the token level and copies numbers, strings and escapes verbatim. `JSON.parse` only checks validity. A value that was stored on one line is saved on one line again, and a value whose JSON did not change counts as unchanged. JSON columns block invalid JSON, text columns only warn.
+
 ## Editing
 
 Edits are only possible when the table has a primary key or a unique key without nullable columns. Rows are identified by the original key values. The backend validates that every change uses exactly that key, generates literal SQL with dialect escaping and runs everything in one transaction. Each statement must affect exactly one row, otherwise everything is rolled back. The SQL shown in the review dialog is the SQL that runs.

@@ -318,6 +318,13 @@ function ProfileNode({
                             {t.structure.menu.newDatabase}
                         </ContextMenuItem>
                     )}
+                    <ContextMenuItem
+                        onSelect={() =>
+                            useUiStore.getState().setProcessListSession(session.sessionId)
+                        }
+                    >
+                        {t.processes.menu}
+                    </ContextMenuItem>
                     <ContextMenuItem onSelect={() => void disconnect(session.sessionId)}>
                         {menuText.disconnect}
                     </ContextMenuItem>

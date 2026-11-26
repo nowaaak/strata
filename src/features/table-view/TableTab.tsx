@@ -135,7 +135,13 @@ export function TableTab({ tab }: { tab: Attached<TableTabModel> }) {
                   setEdits((state) => editCell(state, context, row, col, value)),
               onDeleteRows: (rows) => setEdits((state) => deleteRows(state, context, rows)),
               onOpenEditor: (row, col, value) =>
-                  setCellDialog({ row, col, column: columnNames[col] ?? "", value }),
+                  setCellDialog({
+                      row,
+                      col,
+                      column: columnNames[col] ?? "",
+                      kind: columns[col]?.kind ?? null,
+                      value,
+                  }),
           }
         : null;
 

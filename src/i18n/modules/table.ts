@@ -36,6 +36,12 @@ export const de = {
         value: "Wert",
         setNull: "Auf NULL setzen",
         apply: "Übernehmen",
+        view: "Ansicht",
+        modes: { formatted: "Formatiert", compact: "Kompakt", text: "Text" },
+        invalidJson: "Ungültiges JSON.",
+        invalidJsonAt: (line: number, column: number) =>
+            `Ungültiges JSON in Zeile ${line}, Spalte ${column}.`,
+        invalidJsonAllowed: "In einer Textspalte kannst du den Wert trotzdem übernehmen.",
     },
     structure: {
         columns: "Spalten",
@@ -89,6 +95,12 @@ export const en: typeof de = {
         value: "Value",
         setNull: "Set to NULL",
         apply: "Apply",
+        view: "View",
+        modes: { formatted: "Formatted", compact: "Compact", text: "Text" },
+        invalidJson: "Invalid JSON.",
+        invalidJsonAt: (line: number, column: number) =>
+            `Invalid JSON at line ${line}, column ${column}.`,
+        invalidJsonAllowed: "In a text column you can still apply the value.",
     },
     structure: {
         columns: "Columns",

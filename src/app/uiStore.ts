@@ -38,6 +38,8 @@ type UiState = {
     paletteOpen: boolean;
     structureRequest: StructureRequest;
     setStructureRequest: (request: StructureRequest) => void;
+    processListSession: string | null;
+    setProcessListSession: (sessionId: string | null) => void;
     historyDialog: HistoryDialogState;
     setHistoryDialog: (state: HistoryDialogState) => void;
     hostKeyPrompt: HostKeyPrompt;
@@ -64,6 +66,8 @@ export const useUiStore = create<UiState>((set, get) => ({
     paletteOpen: false,
     structureRequest: null,
     setStructureRequest: (structureRequest) => set({ structureRequest }),
+    processListSession: null,
+    setProcessListSession: (processListSession) => set({ processListSession, paletteOpen: false }),
     historyDialog: null,
     setHistoryDialog: (historyDialog) => set({ historyDialog, paletteOpen: false }),
     hostKeyPrompt: null,

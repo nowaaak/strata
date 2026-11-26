@@ -79,6 +79,8 @@ pub fn run() {
             commands::sessions::open_session,
             commands::sessions::close_session,
             commands::sessions::list_sessions,
+            commands::processes::list_processes,
+            commands::processes::kill_process,
             commands::schema::list_databases,
             commands::schema::list_schemas,
             commands::schema::list_objects,

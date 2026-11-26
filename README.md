@@ -8,10 +8,12 @@ A fast, modern desktop client for MySQL, MariaDB and PostgreSQL. Built with Taur
 - Passwords live in the Windows Credential Manager, or are asked for on every connect
 - SSH tunnel per connection with password or key file (with optional passphrase). The server key is confirmed on first use and a changed key blocks the connection
 - Schema tree with databases, PostgreSQL schemas, tables and views, plus a filter
-- SQL editor with syntax highlighting, schema-aware autocomplete, run statement at cursor (Ctrl+Enter) or the whole script (Ctrl+Shift+Enter), cancel (Ctrl+.) and the error position marked in the text
+- SQL editor with syntax highlighting, schema-aware autocomplete, run statement at cursor (Ctrl+Enter) or the whole script (Ctrl+Shift+Enter), cancel (Ctrl+.), the error position marked in the text and a SQL formatter for the selection or the whole script (Shift+Alt+F)
 - Virtualized result grid that streams up to one million rows, range selection, copy as TSV, resizable columns
 - Table view with WHERE filter, sorting, row limit, structure and DDL
 - Inline editing with insert and delete. Changes are previewed as SQL and saved in one transaction that rolls back unless every statement hits exactly one row
+- JSON in the cell editor: highlighted, formatted or compact, checked while typing. Numbers and strings are never rewritten, and a value stored compact is saved compact again
+- Process list per connection with auto refresh, cancel a running query or end a connection
 - Create, rename, empty and delete databases, PostgreSQL schemas, tables and views from the schema tree. Every change shows the exact SQL first, deleting a database asks for its name, and a new table starts from a SQL template
 - Export to CSV and JSON
 - Command palette (Ctrl+K) for tables, connections and actions

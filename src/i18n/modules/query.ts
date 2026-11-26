@@ -11,6 +11,9 @@ export const de = {
     readOnly: "Nur lesen",
     confirmBadge: "Änderungen werden bestätigt",
     startFailed: "Abfrage konnte nicht gestartet werden",
+    format: "Formatieren",
+    formatHint: "SQL formatieren, Auswahl oder alles (Umschalt+Alt+F)",
+    formatFailed: "SQL konnte nicht formatiert werden",
     cancelFailed: "Abbrechen fehlgeschlagen",
     confirmTitle: (name: string) => `Änderungen an „${name}“ ausführen?`,
     confirmDescription:
@@ -61,6 +64,9 @@ export const en: typeof de = {
     readOnly: "Read-only",
     confirmBadge: "Changes need confirmation",
     startFailed: "The query could not be started",
+    format: "Format",
+    formatHint: "Format SQL, selection or everything (Shift+Alt+F)",
+    formatFailed: "The SQL could not be formatted",
     cancelFailed: "Cancelling failed",
     confirmTitle: (name: string) => `Run changes on “${name}”?`,
     confirmDescription:

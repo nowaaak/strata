@@ -14,8 +14,6 @@ Goal: the everyday HeidiSQL tasks work without falling back to another tool.
 | Import CSV into a table with column mapping                      | Common data task, HeidiSQL has it.                                       | M      |
 | SQL dump export of tables or a database                          | Backups and moving data between servers.                                 | L      |
 | Export the full query result, not only the buffered rows         | Exports stop at the one million row buffer.                              | M      |
-| SQL formatter in the editor                                      | Makes long queries readable.                                             | S      |
-| Process list with kill                                           | Finding and stopping slow queries on a server.                           | S      |
 
 ## 2. Comfort
 
@@ -41,6 +39,9 @@ Goal: the everyday HeidiSQL tasks work without falling back to another tool.
 
 ## Done
 
+- SQL formatter (Shift+Alt+F), process list with cancel and end connection, and a JSON view in the cell editor that never rewrites numbers or strings.
+- Integration tests also run against PostgreSQL 18.
+- Command durations in the log, to find slow steps in the installed app.
 - CI workflow on GitHub (fmt, clippy, tests, typecheck, lint, bindings diff) and a release workflow for signed Windows builds.
 - Open tabs and SQL drafts survive a restart and a disconnect. They reattach when their connection opens again.
 - Searchable query history per connection or across all connections (Ctrl+H), with reuse in the editor or a new tab. It can be turned off in the settings.

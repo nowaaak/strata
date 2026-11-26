@@ -98,6 +98,7 @@ type SqlEditorProps = {
     onRunCurrent?: () => void;
     onRunAll?: () => void;
     onCancel?: () => void;
+    onFormat?: () => void;
     onView?: (view: EditorView | null) => void;
 };
 
@@ -146,6 +147,17 @@ export function SqlEditor(props: SqlEditorProps) {
                     preventDefault: true,
                     run: () => {
                         latest.current.onCancel?.();
+                        return true;
+                    },
+                },
+                {
+                    key: "Shift-Alt-f",
+                    preventDefault: true,
+                    run: () => {
+                        if (latest.current.readOnly || !latest.current.onFormat) {
+                            return false;
+                        }
+                        latest.current.onFormat();
                         return true;
                     },
                 },

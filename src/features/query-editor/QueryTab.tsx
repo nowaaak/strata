@@ -8,6 +8,7 @@ import {
     PlayIcon,
     ShieldAlertIcon,
     SquareIcon,
+    WandSparklesIcon,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -49,6 +50,7 @@ import {
 import { useUiStore } from "@/app/uiStore";
 import { historyKey } from "@/api/history";
 import { registerEditor } from "./editorRegistry";
+import { formatQueryTab } from "./formatAction";
 import { clearError, showError, SqlEditor } from "./SqlEditor";
 import { useT } from "@/i18n";
 import { statementAt } from "./statements";
@@ -203,6 +205,19 @@ export function QueryTab({ tab }: { tab: Attached<QueryTabModel> }) {
                     </TooltipTrigger>
                     <TooltipContent>{t.query.allHint}</TooltipContent>
                 </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void formatQueryTab(tab.id)}
+                        >
+                            <WandSparklesIcon />
+                            {t.query.format}
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t.query.formatHint}</TooltipContent>
+                </Tooltip>
                 <div className="mx-1 h-5 w-px bg-border" />
                 <Select
                     value={tab.database ?? undefined}
@@ -268,6 +283,7 @@ export function QueryTab({ tab }: { tab: Attached<QueryTabModel> }) {
                         onRunCurrent={() => void prepare("current")}
                         onRunAll={() => void prepare("all")}
                         onCancel={cancel}
+                        onFormat={() => void formatQueryTab(tab.id)}
                         onView={(view) => {
                             viewRef.current = view;
                             registerEditor(tab.id, view);

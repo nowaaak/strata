@@ -3,6 +3,7 @@ pub mod error;
 pub mod export;
 mod fsutil;
 pub mod history;
+pub mod processes;
 pub mod profiles;
 pub mod result;
 pub mod schema;

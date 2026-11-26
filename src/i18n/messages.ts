@@ -5,6 +5,7 @@ import * as errors from "./modules/errors";
 import * as grid from "./modules/grid";
 import * as history from "./modules/history";
 import * as palette from "./modules/palette";
+import * as processes from "./modules/processes";
 import * as query from "./modules/query";
 import * as schema from "./modules/schema";
 import * as settings from "./modules/settings";
@@ -20,6 +21,7 @@ const de = {
     grid: grid.de,
     history: history.de,
     palette: palette.de,
+    processes: processes.de,
     query: query.de,
     schema: schema.de,
     settings: settings.de,
@@ -38,6 +40,7 @@ const en: Messages = {
     grid: grid.en,
     history: history.en,
     palette: palette.en,
+    processes: processes.en,
     query: query.en,
     schema: schema.en,
     settings: settings.en,

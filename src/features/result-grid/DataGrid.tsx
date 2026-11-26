@@ -22,6 +22,7 @@ import {
 import { ROW_HEIGHTS } from "@/features/settings/theme";
 import { useSettings } from "@/features/settings/useSettings";
 import { useT } from "@/i18n";
+import { isJsonDocument } from "@/lib/json";
 import { cn } from "@/lib/utils";
 import {
     contentWidth,
@@ -170,7 +171,12 @@ export function DataGrid({ label, columns, rowCount, cache, sort, onSort, editor
             return;
         }
         const text = current ?? "";
-        if (text.includes("\n") || text.length > 200) {
+        if (
+            text.includes("\n") ||
+            text.length > 200 ||
+            columns[cell.col]?.kind === "json" ||
+            isJsonDocument(current ?? null)
+        ) {
             editor.onOpenEditor(cell.row, cell.col, current ?? null);
             return;
         }

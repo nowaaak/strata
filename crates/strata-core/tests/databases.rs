@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use strata_core::driver::ColumnKind;
+use strata_core::processes::KillMode;
 use strata_core::profiles::{
     ConnectionProfile, Engine, PasswordUpdate, ProfileColor, ProfileStore, Safety, TlsMode,
 };
@@ -776,4 +777,102 @@ async fn postgres_18_read_only() {
 #[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
 async fn postgres_18_structure() {
     structure(POSTGRES_18, "it_ddl_postgres").await;
+}
+
+async fn processes(server: Server) {
+    let harness = open(server, Safety::Normal).await;
+    let session = harness.session.clone();
+    let marker = "strata_process_probe";
+    let sql = if server.engine == Engine::Postgres {
+        format!("SELECT pg_sleep(30) AS {marker}")
+    } else {
+        format!("SELECT SLEEP(30) AS {marker}")
+    };
+    let running = tokio::spawn({
+        let session = session.clone();
+        async move { run(&session, "probe", &sql, QUERY_ROW_CAP).await }
+    });
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    let list = session.list_processes().await.unwrap();
+    assert!(list.iter().any(|process| process.own), "{list:?}");
+    let probe = list
+        .iter()
+        .find(|process| {
+            process
+                .query
+                .as_deref()
+                .is_some_and(|query| query.contains(marker))
+        })
+        .unwrap_or_else(|| panic!("the running query must be listed: {list:?}"))
+        .clone();
+    assert!(probe.active);
+    assert!(!probe.own);
+    assert!(probe.seconds.is_some());
+
+    let reader = open(server, Safety::ReadOnly).await;
+    assert_eq!(
+        reader
+            .session
+            .kill_process(&probe.id, KillMode::Query)
+            .await
+            .unwrap_err()
+            .kind(),
+        "read_only"
+    );
+
+    let started = Instant::now();
+    session
+        .kill_process(&probe.id, KillMode::Query)
+        .await
+        .unwrap();
+    let events = tokio::time::timeout(Duration::from_secs(10), running)
+        .await
+        .expect("the query must stop after it was killed")
+        .unwrap();
+    assert!(started.elapsed() < Duration::from_secs(10));
+    if server.engine == Engine::Postgres {
+        assert!(failure(&events).is_some(), "the killed query must fail");
+    } else if let Some((message, _, _)) = failure(&events) {
+        assert!(message.contains("interrupted"), "{message}");
+    } else {
+        assert_eq!(
+            session.fetch_rows("probe", 0, 0, 1).unwrap()[0][0].as_deref(),
+            Some("1"),
+            "MySQL ends an interrupted SLEEP with 1"
+        );
+    }
+
+    assert_eq!(
+        session
+            .kill_process("999999999", KillMode::Query)
+            .await
+            .unwrap_err()
+            .kind(),
+        "database"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_processes() {
+    processes(MYSQL).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_processes() {
+    processes(MARIADB).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_processes() {
+    processes(POSTGRES).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_18_processes() {
+    processes(POSTGRES_18).await;
 }

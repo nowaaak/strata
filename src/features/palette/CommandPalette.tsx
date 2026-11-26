@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
+    ActivityIcon,
     FileCode2Icon,
     HistoryIcon,
     MonitorIcon,
@@ -11,6 +12,7 @@ import {
     SunIcon,
     Table2Icon,
     UnplugIcon,
+    WandSparklesIcon,
     type LucideIcon,
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
@@ -20,6 +22,7 @@ import type { Theme } from "@/bindings/Theme";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { requestConnect, useDisconnect } from "@/features/connections/connect";
 import { useProfiles } from "@/features/connections/useProfiles";
+import { formatQueryTab } from "@/features/query-editor/formatAction";
 import { THEMES } from "@/features/settings/theme";
 import { useSettings, useUpdateSettings } from "@/features/settings/useSettings";
 import { sessionForProfile, useWorkspace } from "@/features/workspace/workspaceStore";
@@ -106,6 +109,14 @@ function useCommands(): Command[] {
                                 .openQueryTab(session.sessionId, session.server.database),
                     },
                     {
+                        id: `processes:${profile.id}`,
+                        label: text.processList(profile.name),
+                        group: "connections",
+                        icon: ActivityIcon,
+                        keywords: profile.group ?? undefined,
+                        run: () => useUiStore.getState().setProcessListSession(session.sessionId),
+                    },
+                    {
                         id: `disconnect:${profile.id}`,
                         label: text.disconnect(profile.name),
                         group: "connections",
@@ -172,6 +183,17 @@ function useCommands(): Command[] {
                                 ? activeTab.database
                                 : activeTab.target.database,
                         ),
+            });
+        }
+        if (activeTab?.kind === "query") {
+            const tabId = activeTab.id;
+            commands.push({
+                id: "format-sql",
+                label: text.formatSql,
+                group: "actions",
+                icon: WandSparklesIcon,
+                hint: "Shift+Alt+F",
+                run: () => window.setTimeout(() => void formatQueryTab(tabId), 0),
             });
         }
         if (settings) {
