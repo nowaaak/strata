@@ -11,6 +11,7 @@ import * as importer from "./modules/importer";
 import * as palette from "./modules/palette";
 import * as processes from "./modules/processes";
 import * as server from "./modules/server";
+import * as er from "./modules/er";
 import * as query from "./modules/query";
 import * as schema from "./modules/schema";
 import * as settings from "./modules/settings";
@@ -33,6 +34,7 @@ const de = {
     palette: palette.de,
     processes: processes.de,
     server: server.de,
+    er: er.de,
     query: query.de,
     schema: schema.de,
     settings: settings.de,
@@ -58,6 +60,7 @@ const en: Messages = {
     palette: palette.en,
     processes: processes.en,
     server: server.en,
+    er: er.en,
     query: query.en,
     schema: schema.en,
     settings: settings.en,

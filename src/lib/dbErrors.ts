@@ -77,10 +77,44 @@ const POSTGRES: Record<string, DbHintKey> = {
     "53300": "tooManyConnections",
 };
 
+const SQLITE: Record<number, DbHintKey> = {
+    1555: "duplicate",
+    2067: "duplicate",
+    1299: "notNull",
+    5: "lockTimeout",
+    6: "lockTimeout",
+    8: "readOnly",
+    9: "interrupted",
+};
+
+function sqliteHint(code: number, text: string): DbHintKey | null {
+    const exact = SQLITE[code] ?? SQLITE[code & 0xff];
+    if (exact) {
+        return exact;
+    }
+    if (/^no such table/.test(text)) {
+        return "unknownTable";
+    }
+    if (/^no such column/.test(text)) {
+        return "unknownColumn";
+    }
+    if (/^no such function/.test(text)) {
+        return "unknownFunction";
+    }
+    if (/syntax error/.test(text)) {
+        return "syntax";
+    }
+    return null;
+}
+
 export function dbHintKey(message: string): DbHintKey | null {
     const mysql = /^ERROR (\d+) \(/.exec(message);
     if (mysql) {
         return MYSQL[Number(mysql[1])] ?? null;
+    }
+    const sqlite = /^SQLITE (\d+): (.*)/s.exec(message);
+    if (sqlite) {
+        return sqliteHint(Number(sqlite[1]), sqlite[2] ?? "");
     }
     const postgres = /^(?:ERROR|FATAL|PANIC) ([0-9A-Z]{5}):/.exec(message);
     if (postgres) {

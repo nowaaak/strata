@@ -30,7 +30,10 @@ pub(super) fn next_token(chars: &[char], at: usize, dialect: Dialect) -> (Token,
         return (Token::Comment, line_end(chars, at));
     }
     if c == '/' && next == Some('*') {
-        return (Token::Comment, block_comment_end(chars, at, !mysql));
+        return (
+            Token::Comment,
+            block_comment_end(chars, at, dialect.is_postgres()),
+        );
     }
     if c == '\'' || c == '"' {
         let backslash = match dialect {
@@ -38,14 +41,22 @@ pub(super) fn next_token(chars: &[char], at: usize, dialect: Dialect) -> (Token,
             Dialect::Postgres { standard_strings } => {
                 c == '\'' && (!standard_strings || is_escape_string_prefix(chars, at))
             }
+            Dialect::Sqlite => false,
         };
         return (Token::Quoted, quoted_end(chars, at, backslash));
     }
-    if c == '`' && mysql {
+    if c == '`' && (mysql || dialect.is_sqlite()) {
         return (Token::Quoted, quoted_end(chars, at, false));
     }
+    if c == '[' && dialect.is_sqlite() {
+        let mut end = at + 1;
+        while end < chars.len() && chars[end] != ']' {
+            end += 1;
+        }
+        return (Token::Quoted, (end + 1).min(chars.len()));
+    }
     if c == '$'
-        && !mysql
+        && dialect.is_postgres()
         && let Some(end) = dollar_quote_end(chars, at)
     {
         return (Token::Quoted, end);

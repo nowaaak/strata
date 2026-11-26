@@ -1,11 +1,12 @@
 # Strata
 
-A fast, modern desktop client for MySQL, MariaDB and PostgreSQL. Built with Tauri 2, Rust and React.
+A fast, modern desktop client for MySQL, MariaDB, PostgreSQL and SQLite. Built with Tauri 2, Rust and React.
 
 ## Features
 
 - Connection profiles in collapsible groups (drag and drop to move them), with color tags, TLS and a safety level per connection: normal, confirm before writing, or read-only (enforced by Strata and by the server session)
 - Passwords live in the Windows Credential Manager, or are asked for on every connect
+- SQLite files: open an existing file or create a new one, with foreign keys switched on. Process list, server databases and schema changes that SQLite cannot do in place are left out
 - SSH tunnel per connection with password or key file (with optional passphrase). The server key is confirmed on first use and a changed key blocks the connection
 - Schema tree with databases, PostgreSQL schemas, tables and views, plus functions, procedures, triggers, events (MySQL, MariaDB) and sequences (PostgreSQL). A click opens their DDL in a new query, and they can be deleted from the context menu
 - SQL editor with syntax highlighting, schema-aware autocomplete, run statement at cursor (Ctrl+Enter) or the whole script (Ctrl+Shift+Enter), cancel (Ctrl+.), the error position marked in the text and a SQL formatter for the selection or the whole script (Shift+Alt+F)
@@ -21,6 +22,7 @@ A fast, modern desktop client for MySQL, MariaDB and PostgreSQL. Built with Taur
 - CSV import into a table with column mapping, delimiter and encoding detection (UTF-8, Windows-1252), decimal comma conversion and one transaction for all rows
 - Foreign key navigation: right click a cell to open the referenced row
 - Command palette (Ctrl+K) for tables, connections and actions
+- ER diagram of a database or schema with keys and foreign keys, search, a compact key view, drag, zoom and a minimap. A double click opens the table
 - Saved snippets (Ctrl+Shift+S), insertable from the palette into any query
 - Execution plans as a readable tree with warnings for full scans, filesorts and misestimates, plus ANALYZE on PostgreSQL
 - Find and replace in table data as reviewable pending changes

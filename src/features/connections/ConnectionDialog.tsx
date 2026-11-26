@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { open as openFileDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import {
     CheckCircle2Icon,
+    FilePlusIcon,
     FolderOpenIcon,
     Loader2Icon,
     PlugZapIcon,
@@ -11,7 +12,7 @@ import {
 import { useId, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { AppError, errorMessage } from "@/api/invoke";
-import { saveProfile, testConnection } from "@/api/profiles";
+import { createSqliteFile, saveProfile, testConnection } from "@/api/profiles";
 import { useUiStore } from "@/app/uiStore";
 import type { ConnectionProfile } from "@/bindings/ConnectionProfile";
 import type { Engine } from "@/bindings/Engine";
@@ -47,7 +48,9 @@ import { groupNames } from "./groups";
 import { COLOR_CLASSES, DEFAULT_PORTS, ENGINE_LABELS } from "./labels";
 import { profilesKey, useProfiles } from "./useProfiles";
 
-const ENGINES: Engine[] = ["mysql", "postgres"];
+const ENGINES: Engine[] = ["mysql", "postgres", "sqlite"];
+const SQLITE_FILTERS = [{ name: "SQLite", extensions: ["sqlite", "sqlite3", "db", "db3", "s3db"] }];
+const DEFAULT_USERS: Record<Engine, string> = { mysql: "root", postgres: "postgres", sqlite: "" };
 const TLS_MODES: TlsMode[] = ["disabled", "required", "verify_full"];
 const SAFETIES: Safety[] = ["normal", "confirm", "read_only"];
 const COLORS: ProfileColor[] = ["none", "red", "amber", "green", "sky", "violet"];
@@ -232,21 +235,67 @@ function ConnectionForm({
     };
 
     const onEngineChange = (engine: Engine) => {
-        setProfile((current) => ({
-            ...current,
-            engine,
-            port:
-                current.port === DEFAULT_PORTS[current.engine]
-                    ? DEFAULT_PORTS[engine]
-                    : current.port,
-            user:
-                current.user === (current.engine === "mysql" ? "root" : "postgres")
-                    ? engine === "mysql"
-                        ? "root"
-                        : "postgres"
-                    : current.user,
-        }));
+        setProfile((current) => {
+            const fromFile = current.engine === "sqlite";
+            const toFile = engine === "sqlite";
+            return {
+                ...current,
+                engine,
+                host: fromFile !== toFile ? (toFile ? "" : "localhost") : current.host,
+                port:
+                    fromFile || current.port === DEFAULT_PORTS[current.engine]
+                        ? DEFAULT_PORTS[engine]
+                        : current.port,
+                user:
+                    fromFile || current.user === DEFAULT_USERS[current.engine]
+                        ? DEFAULT_USERS[engine]
+                        : current.user,
+                ssh: toFile ? null : current.ssh,
+                tls: toFile ? "disabled" : current.tls,
+                askPassword: toFile ? false : current.askPassword,
+                database: toFile ? null : current.database,
+            };
+        });
         setTest({ status: "idle" });
+    };
+
+    const chooseDatabaseFile = async () => {
+        const path = await openFileDialog({
+            multiple: false,
+            directory: false,
+            filters: [...SQLITE_FILTERS, { name: text.allFiles, extensions: ["*"] }],
+        });
+        if (typeof path === "string") {
+            update("host", path);
+        }
+    };
+
+    const createDatabaseFile = async () => {
+        try {
+            const path = await saveFileDialog({
+                defaultPath: "neu.sqlite",
+                filters: SQLITE_FILTERS,
+            });
+            if (!path) {
+                return;
+            }
+            await createSqliteFile(path);
+            update("host", path);
+            if (profile.name.trim() === "") {
+                update(
+                    "name",
+                    path
+                        .split(/[\\/]/)
+                        .pop()
+                        ?.replace(/\.[^.]+$/, "") ?? "",
+                );
+            }
+            toast.success(getT().connections.dialog.fileCreated);
+        } catch (error) {
+            toast.error(getT().connections.dialog.fileFailed, {
+                description: errorMessage(error),
+            });
+        }
     };
 
     const onSubmit = (event: FormEvent) => {
@@ -261,12 +310,11 @@ function ConnectionForm({
             profile.ssh.user.trim() !== "" &&
             profile.ssh.port > 0 &&
             (profile.ssh.auth.kind === "password" || profile.ssh.auth.path.trim() !== ""));
+    const sqlite = profile.engine === "sqlite";
     const canSave =
         profile.name.trim() !== "" &&
         profile.host.trim() !== "" &&
-        profile.user.trim() !== "" &&
-        profile.port > 0 &&
-        sshComplete;
+        (sqlite || (profile.user.trim() !== "" && profile.port > 0 && sshComplete));
     const ssh = profile.ssh;
     const sshText = t.connections.ssh;
 
@@ -274,7 +322,9 @@ function ConnectionForm({
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
             <DialogHeader>
                 <DialogTitle>{editing ? text.editTitle : text.newTitle}</DialogTitle>
-                <DialogDescription>{text.description}</DialogDescription>
+                <DialogDescription>
+                    {sqlite ? text.descriptionSqlite : text.description}
+                </DialogDescription>
             </DialogHeader>
 
             <div className="grid grid-cols-6 gap-3">
@@ -309,85 +359,126 @@ function ConnectionForm({
                     </Select>
                 </div>
 
-                <div className="col-span-4 flex flex-col gap-1.5">
-                    <Label htmlFor={field("host")}>{text.host}</Label>
-                    <Input
-                        id={field("host")}
-                        required
-                        spellCheck={false}
-                        value={profile.host}
-                        onChange={(event) => update("host", event.target.value)}
-                    />
-                </div>
-                <div className="col-span-2 flex flex-col gap-1.5">
-                    <Label htmlFor={field("port")}>{text.port}</Label>
-                    <Input
-                        id={field("port")}
-                        required
-                        inputMode="numeric"
-                        value={profile.port === 0 ? "" : String(profile.port)}
-                        onChange={(event) => {
-                            const digits = event.target.value.replace(/\D/g, "").slice(0, 5);
-                            update("port", Math.min(65535, Number(digits || "0")));
-                        }}
-                        className="tabular-nums"
-                    />
-                </div>
+                {sqlite ? (
+                    <div className="col-span-6 flex flex-col gap-1.5">
+                        <Label htmlFor={field("file")}>{text.file}</Label>
+                        <div className="flex gap-2">
+                            <Input
+                                id={field("file")}
+                                required
+                                spellCheck={false}
+                                placeholder={text.filePlaceholder}
+                                value={profile.host}
+                                onChange={(event) => update("host", event.target.value)}
+                                className="font-mono text-xs"
+                            />
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => void chooseDatabaseFile()}
+                            >
+                                <FolderOpenIcon />
+                                {text.fileOpen}
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => void createDatabaseFile()}
+                            >
+                                <FilePlusIcon />
+                                {text.fileNew}
+                            </Button>
+                        </div>
+                    </div>
+                ) : (
+                    <>
+                        <div className="col-span-4 flex flex-col gap-1.5">
+                            <Label htmlFor={field("host")}>{text.host}</Label>
+                            <Input
+                                id={field("host")}
+                                required
+                                spellCheck={false}
+                                value={profile.host}
+                                onChange={(event) => update("host", event.target.value)}
+                            />
+                        </div>
+                        <div className="col-span-2 flex flex-col gap-1.5">
+                            <Label htmlFor={field("port")}>{text.port}</Label>
+                            <Input
+                                id={field("port")}
+                                required
+                                inputMode="numeric"
+                                value={profile.port === 0 ? "" : String(profile.port)}
+                                onChange={(event) => {
+                                    const digits = event.target.value
+                                        .replace(/\D/g, "")
+                                        .slice(0, 5);
+                                    update("port", Math.min(65535, Number(digits || "0")));
+                                }}
+                                className="tabular-nums"
+                            />
+                        </div>
 
-                <div className="col-span-3 flex flex-col gap-1.5">
-                    <Label htmlFor={field("user")}>{text.user}</Label>
-                    <Input
-                        id={field("user")}
-                        required
-                        spellCheck={false}
-                        autoComplete="off"
-                        value={profile.user}
-                        onChange={(event) => update("user", event.target.value)}
-                    />
-                </div>
-                <div className="col-span-3 flex flex-col gap-1.5">
-                    <Label htmlFor={field("password")}>{text.password}</Label>
-                    <Input
-                        id={field("password")}
-                        type="password"
-                        autoComplete="new-password"
-                        placeholder={
-                            profile.askPassword
-                                ? text.passwordTestOnly
-                                : editing
-                                  ? text.passwordUnchanged
-                                  : text.passwordNone
-                        }
-                        value={password}
-                        onChange={(event) => {
-                            setPassword(event.target.value);
-                            setPasswordTouched(true);
-                            setTest({ status: "idle" });
-                        }}
-                    />
-                </div>
+                        <div className="col-span-3 flex flex-col gap-1.5">
+                            <Label htmlFor={field("user")}>{text.user}</Label>
+                            <Input
+                                id={field("user")}
+                                required
+                                spellCheck={false}
+                                autoComplete="off"
+                                value={profile.user}
+                                onChange={(event) => update("user", event.target.value)}
+                            />
+                        </div>
+                        <div className="col-span-3 flex flex-col gap-1.5">
+                            <Label htmlFor={field("password")}>{text.password}</Label>
+                            <Input
+                                id={field("password")}
+                                type="password"
+                                autoComplete="new-password"
+                                placeholder={
+                                    profile.askPassword
+                                        ? text.passwordTestOnly
+                                        : editing
+                                          ? text.passwordUnchanged
+                                          : text.passwordNone
+                                }
+                                value={password}
+                                onChange={(event) => {
+                                    setPassword(event.target.value);
+                                    setPasswordTouched(true);
+                                    setTest({ status: "idle" });
+                                }}
+                            />
+                        </div>
 
-                <div className="col-span-6 flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
-                    <Label htmlFor={field("ask")} className="font-normal">
-                        {text.askPassword}
-                    </Label>
-                    <Switch
-                        id={field("ask")}
-                        checked={profile.askPassword}
-                        onCheckedChange={(checked) => update("askPassword", checked)}
-                    />
-                </div>
+                        <div className="col-span-6 flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                            <Label htmlFor={field("ask")} className="font-normal">
+                                {text.askPassword}
+                            </Label>
+                            <Switch
+                                id={field("ask")}
+                                checked={profile.askPassword}
+                                onCheckedChange={(checked) => update("askPassword", checked)}
+                            />
+                        </div>
+                    </>
+                )}
 
-                <div className="col-span-3 flex flex-col gap-1.5">
-                    <Label htmlFor={field("database")}>{text.database}</Label>
-                    <Input
-                        id={field("database")}
-                        spellCheck={false}
-                        placeholder={profile.engine === "postgres" ? "postgres" : text.databaseNone}
-                        value={profile.database ?? ""}
-                        onChange={(event) => update("database", event.target.value || null)}
-                    />
-                </div>
+                {!sqlite && (
+                    <div className="col-span-3 flex flex-col gap-1.5">
+                        <Label htmlFor={field("database")}>{text.database}</Label>
+                        <Input
+                            id={field("database")}
+                            spellCheck={false}
+                            placeholder={
+                                profile.engine === "postgres" ? "postgres" : text.databaseNone
+                            }
+                            value={profile.database ?? ""}
+                            onChange={(event) => update("database", event.target.value || null)}
+                        />
+                    </div>
+                )}
                 <div className="col-span-3 flex flex-col gap-1.5">
                     <Label htmlFor={field("group")}>{text.group}</Label>
                     <Input
@@ -405,24 +496,26 @@ function ConnectionForm({
                     </datalist>
                 </div>
 
-                <div className="col-span-3 flex flex-col gap-1.5">
-                    <Label htmlFor={field("tls")}>{text.tls}</Label>
-                    <Select
-                        value={profile.tls}
-                        onValueChange={(value) => update("tls", value as TlsMode)}
-                    >
-                        <SelectTrigger id={field("tls")} className="w-full">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {TLS_MODES.map((mode) => (
-                                <SelectItem key={mode} value={mode}>
-                                    {t.connections.tls[mode]}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
+                {!sqlite && (
+                    <div className="col-span-3 flex flex-col gap-1.5">
+                        <Label htmlFor={field("tls")}>{text.tls}</Label>
+                        <Select
+                            value={profile.tls}
+                            onValueChange={(value) => update("tls", value as TlsMode)}
+                        >
+                            <SelectTrigger id={field("tls")} className="w-full">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {TLS_MODES.map((mode) => (
+                                    <SelectItem key={mode} value={mode}>
+                                        {t.connections.tls[mode]}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                )}
                 <div className="col-span-3 flex flex-col gap-1.5">
                     <Label htmlFor={field("safety")}>{text.safety}</Label>
                     <Select
@@ -467,169 +560,175 @@ function ConnectionForm({
                     </div>
                 </fieldset>
 
-                <div className="col-span-6 flex flex-col gap-3 rounded-lg border px-3 py-2">
-                    <div className="flex items-center justify-between gap-3">
-                        <Label htmlFor={field("ssh")} className="font-normal">
-                            {sshText.enable}
-                        </Label>
-                        <Switch
-                            id={field("ssh")}
-                            checked={ssh !== null}
-                            onCheckedChange={toggleSsh}
-                        />
-                    </div>
-                    {ssh && (
-                        <div className="grid grid-cols-6 gap-3 pb-1">
-                            <p className="col-span-6 text-xs text-muted-foreground">
-                                {sshText.hint}
-                            </p>
-                            <div className="col-span-4 flex flex-col gap-1.5">
-                                <Label htmlFor={field("ssh-host")}>{sshText.host}</Label>
-                                <Input
-                                    id={field("ssh-host")}
-                                    required
-                                    spellCheck={false}
-                                    value={ssh.host}
-                                    onChange={(event) => updateSsh({ host: event.target.value })}
-                                />
-                            </div>
-                            <div className="col-span-2 flex flex-col gap-1.5">
-                                <Label htmlFor={field("ssh-port")}>{sshText.port}</Label>
-                                <Input
-                                    id={field("ssh-port")}
-                                    required
-                                    inputMode="numeric"
-                                    value={ssh.port === 0 ? "" : String(ssh.port)}
-                                    onChange={(event) => {
-                                        const digits = event.target.value
-                                            .replace(/\D/g, "")
-                                            .slice(0, 5);
-                                        updateSsh({
-                                            port: Math.min(65535, Number(digits || "0")),
-                                        });
-                                    }}
-                                    className="tabular-nums"
-                                />
-                            </div>
-                            <div className="col-span-3 flex flex-col gap-1.5">
-                                <Label htmlFor={field("ssh-user")}>{sshText.user}</Label>
-                                <Input
-                                    id={field("ssh-user")}
-                                    required
-                                    spellCheck={false}
-                                    autoComplete="off"
-                                    value={ssh.user}
-                                    onChange={(event) => updateSsh({ user: event.target.value })}
-                                />
-                            </div>
-                            <div className="col-span-3 flex flex-col gap-1.5">
-                                <Label htmlFor={field("ssh-auth")}>{sshText.auth}</Label>
-                                <Select
-                                    value={ssh.auth.kind}
-                                    onValueChange={(kind) =>
-                                        updateSsh({
-                                            auth:
-                                                kind === "key_file"
-                                                    ? { kind: "key_file", path: "" }
-                                                    : ({ kind: "password" } satisfies SshAuth),
-                                        })
-                                    }
-                                >
-                                    <SelectTrigger id={field("ssh-auth")} className="w-full">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="password">
-                                            {sshText.authPassword}
-                                        </SelectItem>
-                                        <SelectItem value="key_file">
-                                            {sshText.authKeyFile}
-                                        </SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            {ssh.auth.kind === "key_file" && (
-                                <div className="col-span-6 flex flex-col gap-1.5">
-                                    <Label htmlFor={field("ssh-key")}>{sshText.keyFile}</Label>
-                                    <div className="flex gap-2">
-                                        <Input
-                                            id={field("ssh-key")}
-                                            required
-                                            spellCheck={false}
-                                            value={ssh.auth.path}
-                                            onChange={(event) =>
-                                                updateSsh({
-                                                    auth: {
-                                                        kind: "key_file",
-                                                        path: event.target.value,
-                                                    },
-                                                })
-                                            }
-                                            className="font-mono text-xs"
-                                        />
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            onClick={() => void chooseKeyFile()}
-                                        >
-                                            <FolderOpenIcon />
-                                            {sshText.browse}
-                                        </Button>
-                                    </div>
-                                </div>
-                            )}
-                            <div className="col-span-6 flex flex-col gap-1.5">
-                                <Label htmlFor={field("ssh-secret")}>
-                                    {ssh.auth.kind === "password"
-                                        ? sshText.password
-                                        : sshText.passphrase}
-                                </Label>
-                                <Input
-                                    id={field("ssh-secret")}
-                                    type="password"
-                                    autoComplete="new-password"
-                                    placeholder={
-                                        sameAuthKind
-                                            ? text.passwordUnchanged
-                                            : ssh.auth.kind === "password"
-                                              ? text.passwordNone
-                                              : ""
-                                    }
-                                    value={sshSecret}
-                                    onChange={(event) => {
-                                        setSshSecret(event.target.value);
-                                        setSshSecretTouched(true);
-                                        setTest({ status: "idle" });
-                                    }}
-                                />
-                            </div>
-                            <div className="col-span-6 flex flex-col gap-1.5">
-                                <span className="text-sm leading-none font-medium">
-                                    {sshText.hostKey}
-                                </span>
-                                {ssh.hostKey ? (
-                                    <div className="flex items-center gap-2">
-                                        <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1.5 font-mono text-xs select-text">
-                                            {ssh.hostKey}
-                                        </code>
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => updateSsh({ hostKey: null })}
-                                        >
-                                            {sshText.forget}
-                                        </Button>
-                                    </div>
-                                ) : (
-                                    <p className="text-xs text-muted-foreground">
-                                        {sshText.hostKeyNone}
-                                    </p>
-                                )}
-                            </div>
+                {!sqlite && (
+                    <div className="col-span-6 flex flex-col gap-3 rounded-lg border px-3 py-2">
+                        <div className="flex items-center justify-between gap-3">
+                            <Label htmlFor={field("ssh")} className="font-normal">
+                                {sshText.enable}
+                            </Label>
+                            <Switch
+                                id={field("ssh")}
+                                checked={ssh !== null}
+                                onCheckedChange={toggleSsh}
+                            />
                         </div>
-                    )}
-                </div>
+                        {ssh && (
+                            <div className="grid grid-cols-6 gap-3 pb-1">
+                                <p className="col-span-6 text-xs text-muted-foreground">
+                                    {sshText.hint}
+                                </p>
+                                <div className="col-span-4 flex flex-col gap-1.5">
+                                    <Label htmlFor={field("ssh-host")}>{sshText.host}</Label>
+                                    <Input
+                                        id={field("ssh-host")}
+                                        required
+                                        spellCheck={false}
+                                        value={ssh.host}
+                                        onChange={(event) =>
+                                            updateSsh({ host: event.target.value })
+                                        }
+                                    />
+                                </div>
+                                <div className="col-span-2 flex flex-col gap-1.5">
+                                    <Label htmlFor={field("ssh-port")}>{sshText.port}</Label>
+                                    <Input
+                                        id={field("ssh-port")}
+                                        required
+                                        inputMode="numeric"
+                                        value={ssh.port === 0 ? "" : String(ssh.port)}
+                                        onChange={(event) => {
+                                            const digits = event.target.value
+                                                .replace(/\D/g, "")
+                                                .slice(0, 5);
+                                            updateSsh({
+                                                port: Math.min(65535, Number(digits || "0")),
+                                            });
+                                        }}
+                                        className="tabular-nums"
+                                    />
+                                </div>
+                                <div className="col-span-3 flex flex-col gap-1.5">
+                                    <Label htmlFor={field("ssh-user")}>{sshText.user}</Label>
+                                    <Input
+                                        id={field("ssh-user")}
+                                        required
+                                        spellCheck={false}
+                                        autoComplete="off"
+                                        value={ssh.user}
+                                        onChange={(event) =>
+                                            updateSsh({ user: event.target.value })
+                                        }
+                                    />
+                                </div>
+                                <div className="col-span-3 flex flex-col gap-1.5">
+                                    <Label htmlFor={field("ssh-auth")}>{sshText.auth}</Label>
+                                    <Select
+                                        value={ssh.auth.kind}
+                                        onValueChange={(kind) =>
+                                            updateSsh({
+                                                auth:
+                                                    kind === "key_file"
+                                                        ? { kind: "key_file", path: "" }
+                                                        : ({ kind: "password" } satisfies SshAuth),
+                                            })
+                                        }
+                                    >
+                                        <SelectTrigger id={field("ssh-auth")} className="w-full">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="password">
+                                                {sshText.authPassword}
+                                            </SelectItem>
+                                            <SelectItem value="key_file">
+                                                {sshText.authKeyFile}
+                                            </SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                {ssh.auth.kind === "key_file" && (
+                                    <div className="col-span-6 flex flex-col gap-1.5">
+                                        <Label htmlFor={field("ssh-key")}>{sshText.keyFile}</Label>
+                                        <div className="flex gap-2">
+                                            <Input
+                                                id={field("ssh-key")}
+                                                required
+                                                spellCheck={false}
+                                                value={ssh.auth.path}
+                                                onChange={(event) =>
+                                                    updateSsh({
+                                                        auth: {
+                                                            kind: "key_file",
+                                                            path: event.target.value,
+                                                        },
+                                                    })
+                                                }
+                                                className="font-mono text-xs"
+                                            />
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                onClick={() => void chooseKeyFile()}
+                                            >
+                                                <FolderOpenIcon />
+                                                {sshText.browse}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+                                <div className="col-span-6 flex flex-col gap-1.5">
+                                    <Label htmlFor={field("ssh-secret")}>
+                                        {ssh.auth.kind === "password"
+                                            ? sshText.password
+                                            : sshText.passphrase}
+                                    </Label>
+                                    <Input
+                                        id={field("ssh-secret")}
+                                        type="password"
+                                        autoComplete="new-password"
+                                        placeholder={
+                                            sameAuthKind
+                                                ? text.passwordUnchanged
+                                                : ssh.auth.kind === "password"
+                                                  ? text.passwordNone
+                                                  : ""
+                                        }
+                                        value={sshSecret}
+                                        onChange={(event) => {
+                                            setSshSecret(event.target.value);
+                                            setSshSecretTouched(true);
+                                            setTest({ status: "idle" });
+                                        }}
+                                    />
+                                </div>
+                                <div className="col-span-6 flex flex-col gap-1.5">
+                                    <span className="text-sm leading-none font-medium">
+                                        {sshText.hostKey}
+                                    </span>
+                                    {ssh.hostKey ? (
+                                        <div className="flex items-center gap-2">
+                                            <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1.5 font-mono text-xs select-text">
+                                                {ssh.hostKey}
+                                            </code>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => updateSsh({ hostKey: null })}
+                                            >
+                                                {sshText.forget}
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-muted-foreground">
+                                            {sshText.hostKeyNone}
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             <div aria-live="polite" className="min-h-5 text-sm">

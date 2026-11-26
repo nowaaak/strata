@@ -116,14 +116,21 @@ function useCommands(): Command[] {
                                 .getState()
                                 .openQueryTab(session.sessionId, session.server.database),
                     },
-                    {
-                        id: `processes:${profile.id}`,
-                        label: text.processList(profile.name),
-                        group: "connections",
-                        icon: ActivityIcon,
-                        keywords: profile.group ?? undefined,
-                        run: () => useUiStore.getState().setProcessListSession(session.sessionId),
-                    },
+                    ...(session.engine === "sqlite"
+                        ? []
+                        : [
+                              {
+                                  id: `processes:${profile.id}`,
+                                  label: text.processList(profile.name),
+                                  group: "connections" as const,
+                                  icon: ActivityIcon,
+                                  keywords: profile.group ?? undefined,
+                                  run: () =>
+                                      useUiStore
+                                          .getState()
+                                          .setProcessListSession(session.sessionId),
+                              },
+                          ]),
                     {
                         id: `server:${profile.id}`,
                         label: text.serverInfo(profile.name),

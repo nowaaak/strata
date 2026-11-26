@@ -87,7 +87,7 @@ fn through(tunnel: &SshTunnel, engine: Engine, user: &str, tls: TlsMode) -> Conn
         tls_server_name: Some(
             match engine {
                 Engine::Mysql => "mysql",
-                Engine::Postgres => "postgres",
+                Engine::Postgres | Engine::Sqlite => "postgres",
             }
             .into(),
         ),

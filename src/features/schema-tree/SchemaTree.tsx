@@ -187,6 +187,7 @@ function DatabaseNode({
     const queryClient = useQueryClient();
     const [expanded, toggle] = useExpanded(treeKey.database(session.sessionId, database));
     const postgres = session.engine === "postgres";
+    const sqlite = session.engine === "sqlite";
     const isDefault = session.server.database === database;
 
     const menu = (
@@ -218,6 +219,19 @@ function DatabaseNode({
                     }
                 >
                     {t.dump.menu}
+                </ContextMenuItem>
+            )}
+            {!postgres && (
+                <ContextMenuItem
+                    onSelect={() =>
+                        useUiStore.getState().setErRequest({
+                            sessionId: session.sessionId,
+                            database,
+                            schema: null,
+                        })
+                    }
+                >
+                    {t.er.menu}
                 </ContextMenuItem>
             )}
             <ContextMenuSeparator />
@@ -273,17 +287,19 @@ function DatabaseNode({
                             {t.structure.menu.rename}
                         </ContextMenuItem>
                     )}
-                    <ContextMenuItem
-                        variant="destructive"
-                        onSelect={() =>
-                            requestStructure(session.sessionId, {
-                                action: "drop_database",
-                                database,
-                            })
-                        }
-                    >
-                        {t.structure.menu.drop}
-                    </ContextMenuItem>
+                    {!sqlite && (
+                        <ContextMenuItem
+                            variant="destructive"
+                            onSelect={() =>
+                                requestStructure(session.sessionId, {
+                                    action: "drop_database",
+                                    database,
+                                })
+                            }
+                        >
+                            {t.structure.menu.drop}
+                        </ContextMenuItem>
+                    )}
                 </>
             )}
         </>
@@ -403,6 +419,17 @@ function SchemaNode({
                 }
             >
                 {t.dump.menu}
+            </ContextMenuItem>
+            <ContextMenuItem
+                onSelect={() =>
+                    useUiStore.getState().setErRequest({
+                        sessionId: session.sessionId,
+                        database,
+                        schema,
+                    })
+                }
+            >
+                {t.er.menu}
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem onSelect={() => void copyText(schema, t.schema.name)}>
@@ -578,7 +605,9 @@ function ObjectNode({
     const qualified =
         session.engine === "postgres"
             ? `"${target.schema ?? "public"}"."${object.name}"`
-            : `\`${object.name}\``;
+            : session.engine === "sqlite"
+              ? `"${object.name.replace(/"/g, '""')}"`
+              : `\`${object.name}\``;
     const Icon = object.kind === "view" ? EyeIcon : Table2Icon;
 
     return (

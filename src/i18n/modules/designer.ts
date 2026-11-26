@@ -34,6 +34,8 @@ export const de = {
     },
     noReorderPostgres:
         "PostgreSQL kann die Reihenfolge vorhandener Spalten nicht ändern. Neue Spalten kommen ans Ende.",
+    sqliteLimits:
+        "SQLite kann bestehende Spalten nur umbenennen oder löschen. Typ, NULL, Standardwert und Schlüssel ändern sich nur über eine neu angelegte Tabelle.",
     foreignKeys: "Fremdschlüssel",
     foreignKey: {
         name: "Name",
@@ -45,6 +47,7 @@ export const de = {
         pickTargetColumns: "Zielspalten in derselben Reihenfolge anklicken",
         pickTableFirst: "Erst eine Zieltabelle wählen",
         countMismatch: "Gleich viele Spalten auf beiden Seiten wählen",
+        none: "Keine Fremdschlüssel",
         onDelete: "Beim Löschen",
         onUpdate: "Beim Ändern",
         add: "Fremdschlüssel hinzufügen",
@@ -94,7 +97,7 @@ export const de = {
     reviewHintMysql:
         "MySQL und MariaDB führen Strukturänderungen ohne Transaktion aus. Prüfe gelöschte Spalten besonders genau.",
     reviewHintPostgres:
-        "PostgreSQL führt alle Anweisungen in einer Transaktion aus. Schlägt eine fehl, wird nichts geändert.",
+        "Alle Anweisungen laufen in einer Transaktion. Schlägt eine fehl, wird nichts geändert.",
     done: "Struktur geändert",
     created: (table: string) => `Tabelle „${table}“ angelegt`,
     failed: "Strukturänderung fehlgeschlagen",
@@ -136,6 +139,8 @@ export const en: typeof de = {
     },
     noReorderPostgres:
         "PostgreSQL cannot change the order of existing columns. New columns are added at the end.",
+    sqliteLimits:
+        "SQLite can only rename or drop existing columns. Type, NULL, default and keys only change by creating the table again.",
     foreignKeys: "Foreign keys",
     foreignKey: {
         name: "Name",
@@ -147,6 +152,7 @@ export const en: typeof de = {
         pickTargetColumns: "Click referenced columns in the same order",
         pickTableFirst: "Choose a referenced table first",
         countMismatch: "Choose as many columns on both sides",
+        none: "No foreign keys",
         onDelete: "On delete",
         onUpdate: "On update",
         add: "Add foreign key",
@@ -194,8 +200,7 @@ export const en: typeof de = {
     reviewTitle: "SQL that will run",
     reviewHintMysql:
         "MySQL and MariaDB run structure changes without a transaction. Check dropped columns carefully.",
-    reviewHintPostgres:
-        "PostgreSQL runs all statements in one transaction. If one fails, nothing is changed.",
+    reviewHintPostgres: "All statements run in one transaction. If one fails, nothing is changed.",
     done: "Structure changed",
     created: (table: string) => `Table “${table}” created`,
     failed: "The structure change failed",

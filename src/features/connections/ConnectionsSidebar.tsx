@@ -377,7 +377,7 @@ function ProfileNode({
                     >
                         {menuText.newQuery}
                     </ContextMenuItem>
-                    {!session.readOnly && (
+                    {!session.readOnly && session.engine !== "sqlite" && (
                         <ContextMenuItem
                             onSelect={() =>
                                 requestStructure(session.sessionId, {
@@ -389,13 +389,15 @@ function ProfileNode({
                             {t.structure.menu.newDatabase}
                         </ContextMenuItem>
                     )}
-                    <ContextMenuItem
-                        onSelect={() =>
-                            useUiStore.getState().setProcessListSession(session.sessionId)
-                        }
-                    >
-                        {t.processes.menu}
-                    </ContextMenuItem>
+                    {session.engine !== "sqlite" && (
+                        <ContextMenuItem
+                            onSelect={() =>
+                                useUiStore.getState().setProcessListSession(session.sessionId)
+                            }
+                        >
+                            {t.processes.menu}
+                        </ContextMenuItem>
+                    )}
                     <ContextMenuItem
                         onSelect={() =>
                             useUiStore.getState().setServerInfoSession(session.sessionId)
@@ -449,7 +451,9 @@ function ProfileNode({
 
     const details = session
         ? `${session.server.flavor} ${session.server.version}`
-        : `${profile.user}@${profile.host}:${profile.port}`;
+        : profile.engine === "sqlite"
+          ? profile.host
+          : `${profile.user}@${profile.host}:${profile.port}`;
 
     return (
         <div>

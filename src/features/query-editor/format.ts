@@ -6,6 +6,9 @@ export function formatterLanguage(engine: Engine, flavor: string | undefined): S
     if (engine === "postgres") {
         return "postgresql";
     }
+    if (engine === "sqlite") {
+        return "sqlite";
+    }
     return flavor === "MariaDB" ? "mariadb" : "mysql";
 }
 

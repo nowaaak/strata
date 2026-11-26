@@ -31,6 +31,17 @@ describe("database error hints", () => {
         );
     });
 
+    it("reads SQLite result codes and messages", () => {
+        expect(dbHintKey("SQLITE 1: no such table: kunde")).toBe("unknownTable");
+        expect(dbHintKey("SQLITE 1: no such column: x")).toBe("unknownColumn");
+        expect(dbHintKey('SQLITE 1: near "FORM": syntax error')).toBe("syntax");
+        expect(dbHintKey("SQLITE 2067: UNIQUE constraint failed: kunde.email")).toBe("duplicate");
+        expect(dbHintKey("SQLITE 1299: NOT NULL constraint failed: kunde.name")).toBe("notNull");
+        expect(dbHintKey("SQLITE 9: interrupted")).toBe("interrupted");
+        expect(dbHintKey("SQLITE 1032: attempt to write a readonly database")).toBe("readOnly");
+        expect(dbHintKey("SQLITE 787: FOREIGN KEY constraint failed")).toBeNull();
+    });
+
     it("recognises connection problems", () => {
         expect(
             dbHintKey(

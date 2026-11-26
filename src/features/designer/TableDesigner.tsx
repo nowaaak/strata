@@ -160,6 +160,7 @@ function DesignerForm({
     const [indexes, setIndexes] = useState<IndexRow[]>(() => indexRows(design));
     const [foreignKeys, setForeignKeys] = useState<ForeignKeyRow[]>(() => foreignKeyRows(design));
     const reorder = creating || engine === "mysql";
+    const sqlite = engine === "sqlite";
     const [statements, setStatements] = useState<string[] | null>(null);
 
     const target: TableTarget =
@@ -236,9 +237,9 @@ function DesignerForm({
                     <DialogDescription>
                         {creating
                             ? text.createDescription
-                            : engine === "postgres"
-                              ? text.reviewHintPostgres
-                              : text.reviewHintMysql}
+                            : engine === "mysql"
+                              ? text.reviewHintMysql
+                              : text.reviewHintPostgres}
                     </DialogDescription>
                 </DialogHeader>
                 <pre className="min-h-0 flex-1 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs whitespace-pre-wrap select-text">
@@ -321,7 +322,11 @@ function DesignerForm({
                                     >
                                         {text.column.autoIncrement}
                                     </th>
-                                    <th className="px-2 py-2 font-medium">{text.column.comment}</th>
+                                    {!sqlite && (
+                                        <th className="px-2 py-2 font-medium">
+                                            {text.column.comment}
+                                        </th>
+                                    )}
                                     <th className="w-10 px-2 py-2" />
                                 </tr>
                             </thead>
@@ -331,6 +336,9 @@ function DesignerForm({
                                         key={row.key}
                                         row={row}
                                         moved={!creating && reorder && isMoved(columns, row)}
+                                        sqlite={sqlite}
+                                        renameOnly={sqlite && !creating && row.original !== null}
+                                        keyLocked={sqlite && !creating}
                                         listId={`${id}-types`}
                                         onChange={(patch) => updateColumn(row.key, patch)}
                                         onRemove={() => removeColumn(row)}
@@ -368,6 +376,9 @@ function DesignerForm({
                 {!creating && engine === "postgres" && (
                     <p className="text-xs text-muted-foreground">{text.noReorderPostgres}</p>
                 )}
+                {!creating && sqlite && (
+                    <p className="text-xs text-muted-foreground">{text.sqliteLimits}</p>
+                )}
 
                 {!creating && (
                     <IndexEditor
@@ -384,6 +395,7 @@ function DesignerForm({
                         keys={foreignKeys}
                         columnNames={liveColumnNames(columns)}
                         onChange={setForeignKeys}
+                        readOnly={sqlite}
                     />
                 )}
             </div>
@@ -414,6 +426,9 @@ function DesignerForm({
 function ColumnEditor({
     row,
     moved,
+    sqlite,
+    renameOnly,
+    keyLocked,
     listId,
     onChange,
     onRemove,
@@ -423,6 +438,9 @@ function ColumnEditor({
 }: {
     row: ColumnRow;
     moved: boolean;
+    sqlite: boolean;
+    renameOnly: boolean;
+    keyLocked: boolean;
     listId: string;
     onChange: (patch: Partial<ColumnRow>) => void;
     onRemove: () => void;
@@ -433,6 +451,7 @@ function ColumnEditor({
     const t = useT();
     const text = t.designer;
     const locked = row.dropped || (row.original?.generated ?? false);
+    const fixed = locked || renameOnly;
     const modes: DefaultMode[] = row.original
         ? ["keep", "none", "null", "text", "expression"]
         : ["none", "null", "text", "expression"];
@@ -452,7 +471,7 @@ function ColumnEditor({
                     type="checkbox"
                     className={CHECKBOX}
                     aria-label={text.column.primaryHint}
-                    disabled={locked}
+                    disabled={fixed || keyLocked}
                     checked={row.primary}
                     onChange={(event) =>
                         onChange({
@@ -490,7 +509,7 @@ function ColumnEditor({
                     list={listId}
                     spellCheck={false}
                     autoComplete="off"
-                    disabled={locked}
+                    disabled={fixed}
                     value={row.dataType}
                     onChange={(event) => onChange({ dataType: event.target.value })}
                     className="h-7 min-w-36 font-mono text-xs"
@@ -501,7 +520,7 @@ function ColumnEditor({
                     type="checkbox"
                     className={CHECKBOX}
                     aria-label={text.column.nullableHint}
-                    disabled={locked || row.primary}
+                    disabled={fixed || row.primary}
                     checked={row.nullable}
                     onChange={(event) => onChange({ nullable: event.target.checked })}
                 />
@@ -510,7 +529,7 @@ function ColumnEditor({
                 <div className="flex min-w-56 items-center gap-1.5">
                     <Select
                         value={row.defaultMode}
-                        disabled={locked}
+                        disabled={fixed}
                         onValueChange={(mode) => onChange({ defaultMode: mode as DefaultMode })}
                     >
                         <SelectTrigger
@@ -554,22 +573,24 @@ function ColumnEditor({
                     type="checkbox"
                     className={CHECKBOX}
                     aria-label={text.column.autoIncrementHint}
-                    disabled={locked}
+                    disabled={fixed || keyLocked}
                     checked={row.autoIncrement}
                     onChange={(event) => onChange({ autoIncrement: event.target.checked })}
                 />
             </td>
-            <td className="px-2 py-1.5">
-                <Input
-                    aria-label={text.column.comment}
-                    placeholder={text.column.commentPlaceholder}
-                    spellCheck={false}
-                    disabled={locked}
-                    value={row.comment}
-                    onChange={(event) => onChange({ comment: event.target.value })}
-                    className="h-7 min-w-36 text-xs"
-                />
-            </td>
+            {!sqlite && (
+                <td className="px-2 py-1.5">
+                    <Input
+                        aria-label={text.column.comment}
+                        placeholder={text.column.commentPlaceholder}
+                        spellCheck={false}
+                        disabled={locked}
+                        value={row.comment}
+                        onChange={(event) => onChange({ comment: event.target.value })}
+                        className="h-7 min-w-36 text-xs"
+                    />
+                </td>
+            )}
             <td className="px-1 py-1.5 text-right whitespace-nowrap">
                 {onMove && (
                     <>
@@ -868,12 +889,14 @@ function ForeignKeyEditor({
     keys,
     columnNames,
     onChange,
+    readOnly,
 }: {
     sessionId: string;
     target: TableTarget;
     keys: ForeignKeyRow[];
     columnNames: string[];
     onChange: (keys: ForeignKeyRow[]) => void;
+    readOnly: boolean;
 }) {
     const t = useT();
     const text = t.designer.foreignKey;
@@ -964,6 +987,7 @@ function ForeignKeyEditor({
                                 size="icon"
                                 variant="ghost"
                                 className="size-7"
+                                disabled={readOnly}
                                 aria-label={
                                     key.dropped ? text.restore(key.name) : text.remove(key.name)
                                 }
@@ -976,95 +1000,104 @@ function ForeignKeyEditor({
                     ))}
                 </ul>
             )}
-            <div className="flex flex-col gap-3 rounded-lg border border-dashed p-3">
-                <div className="flex flex-wrap items-end gap-3">
-                    <div className="flex flex-col gap-1.5">
-                        <Label htmlFor={`${id}-name`} className="text-xs">
-                            {text.name}
-                        </Label>
-                        <Input
-                            id={`${id}-name`}
-                            placeholder={suggestion}
-                            spellCheck={false}
-                            autoComplete="off"
-                            maxLength={128}
-                            value={name}
-                            onChange={(event) => setName(event.target.value)}
-                            onFocus={() => name === "" && picked.length > 0 && setName(suggestion)}
-                            className="h-7 w-56 font-mono text-xs"
-                        />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                        <span className="text-xs">{text.targetTable}</span>
-                        <Select
-                            value={targetTable}
-                            onValueChange={(table) => {
-                                setTargetTable(table);
-                                setTargetPicked([]);
-                            }}
-                        >
-                            <SelectTrigger
-                                size="sm"
-                                aria-label={text.targetTable}
+            {keys.length === 0 && readOnly && (
+                <p className="text-xs text-muted-foreground">{text.none}</p>
+            )}
+            {!readOnly && (
+                <div className="flex flex-col gap-3 rounded-lg border border-dashed p-3">
+                    <div className="flex flex-wrap items-end gap-3">
+                        <div className="flex flex-col gap-1.5">
+                            <Label htmlFor={`${id}-name`} className="text-xs">
+                                {text.name}
+                            </Label>
+                            <Input
+                                id={`${id}-name`}
+                                placeholder={suggestion}
+                                spellCheck={false}
+                                autoComplete="off"
+                                maxLength={128}
+                                value={name}
+                                onChange={(event) => setName(event.target.value)}
+                                onFocus={() =>
+                                    name === "" && picked.length > 0 && setName(suggestion)
+                                }
                                 className="h-7 w-56 font-mono text-xs"
+                            />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <span className="text-xs">{text.targetTable}</span>
+                            <Select
+                                value={targetTable}
+                                onValueChange={(table) => {
+                                    setTargetTable(table);
+                                    setTargetPicked([]);
+                                }}
                             >
-                                <SelectValue placeholder={text.pickTable} />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {(tables.data ?? [])
-                                    .filter((object) => object.kind === "table")
-                                    .map((object) => (
-                                        <SelectItem
-                                            key={object.name}
-                                            value={object.name}
-                                            className="font-mono text-xs"
-                                        >
-                                            {object.name}
-                                        </SelectItem>
-                                    ))}
-                            </SelectContent>
-                        </Select>
+                                <SelectTrigger
+                                    size="sm"
+                                    aria-label={text.targetTable}
+                                    className="h-7 w-56 font-mono text-xs"
+                                >
+                                    <SelectValue placeholder={text.pickTable} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {(tables.data ?? [])
+                                        .filter((object) => object.kind === "table")
+                                        .map((object) => (
+                                            <SelectItem
+                                                key={object.name}
+                                                value={object.name}
+                                                className="font-mono text-xs"
+                                            >
+                                                {object.name}
+                                            </SelectItem>
+                                        ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <RuleSelect label={text.onDelete} value={onDelete} onChange={setOnDelete} />
+                        <RuleSelect label={text.onUpdate} value={onUpdate} onChange={setOnUpdate} />
+                        <Button size="sm" variant="outline" disabled={!canAdd} onClick={add}>
+                            <PlusIcon />
+                            {text.add}
+                        </Button>
                     </div>
-                    <RuleSelect label={text.onDelete} value={onDelete} onChange={setOnDelete} />
-                    <RuleSelect label={text.onUpdate} value={onUpdate} onChange={setOnUpdate} />
-                    <Button size="sm" variant="outline" disabled={!canAdd} onClick={add}>
-                        <PlusIcon />
-                        {text.add}
-                    </Button>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="flex flex-col gap-1.5">
-                        <span className="text-xs text-muted-foreground">{text.pickColumns}</span>
-                        <ColumnPicker
-                            label={text.columns}
-                            columns={columnNames}
-                            picked={picked}
-                            onChange={setPicked}
-                        />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                        <span className="text-xs text-muted-foreground">
-                            {targetTable === "" ? text.pickTableFirst : text.pickTargetColumns}
-                        </span>
-                        {referenced.isFetching && targetTable !== target.table && (
-                            <Loader2Icon className="size-4 animate-spin text-muted-foreground motion-reduce:animate-none" />
-                        )}
-                        <ColumnPicker
-                            label={text.targetColumns}
-                            columns={targetColumns}
-                            picked={targetPicked}
-                            onChange={setTargetPicked}
-                        />
-                        {picked.length > 0 &&
-                            targetPicked.length > 0 &&
-                            picked.length !== targetPicked.length && (
-                                <span className="text-xs text-destructive">
-                                    {text.countMismatch}
-                                </span>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="flex flex-col gap-1.5">
+                            <span className="text-xs text-muted-foreground">
+                                {text.pickColumns}
+                            </span>
+                            <ColumnPicker
+                                label={text.columns}
+                                columns={columnNames}
+                                picked={picked}
+                                onChange={setPicked}
+                            />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <span className="text-xs text-muted-foreground">
+                                {targetTable === "" ? text.pickTableFirst : text.pickTargetColumns}
+                            </span>
+                            {referenced.isFetching && targetTable !== target.table && (
+                                <Loader2Icon className="size-4 animate-spin text-muted-foreground motion-reduce:animate-none" />
                             )}
+                            <ColumnPicker
+                                label={text.targetColumns}
+                                columns={targetColumns}
+                                picked={targetPicked}
+                                onChange={setTargetPicked}
+                            />
+                            {picked.length > 0 &&
+                                targetPicked.length > 0 &&
+                                picked.length !== targetPicked.length && (
+                                    <span className="text-xs text-destructive">
+                                        {text.countMismatch}
+                                    </span>
+                                )}
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
         </section>
     );
 }

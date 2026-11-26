@@ -4,7 +4,9 @@ impl Dialect {
     pub fn quote_ident(self, ident: &str) -> String {
         match self {
             Self::MySql { .. } => format!("`{}`", ident.replace('`', "``")),
-            Self::Postgres { .. } => format!("\"{}\"", ident.replace('"', "\"\"")),
+            Self::Postgres { .. } | Self::Sqlite => {
+                format!("\"{}\"", ident.replace('"', "\"\""))
+            }
         }
     }
 
@@ -40,7 +42,8 @@ impl Dialect {
             }
             | Self::Postgres {
                 standard_strings: true,
-            } => format!("'{}'", value.replace('\'', "''")),
+            }
+            | Self::Sqlite => format!("'{}'", value.replace('\'', "''")),
             Self::Postgres {
                 standard_strings: false,
             } => format!("E'{}'", value.replace('\\', "\\\\").replace('\'', "''")),

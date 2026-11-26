@@ -99,6 +99,7 @@ export const TYPE_SUGGESTIONS: Record<Engine, string[]> = {
         "inet",
         "text[]",
     ],
+    sqlite: ["INTEGER", "TEXT", "REAL", "NUMERIC", "BLOB", "BOOLEAN", "DATE", "DATETIME", "JSON"],
 };
 
 let counter = 0;
@@ -168,7 +169,7 @@ export function newColumn(engine: Engine): ColumnRow {
         original: null,
         originalPrevious: null,
         name: "",
-        dataType: engine === "postgres" ? "text" : "VARCHAR(255)",
+        dataType: { mysql: "VARCHAR(255)", postgres: "text", sqlite: "TEXT" }[engine],
         nullable: true,
         defaultMode: "none",
         defaultValue: "",
@@ -183,7 +184,7 @@ export function idColumn(engine: Engine): ColumnRow {
     return {
         ...newColumn(engine),
         name: "id",
-        dataType: engine === "postgres" ? "bigint" : "INT",
+        dataType: { mysql: "INT", postgres: "bigint", sqlite: "INTEGER" }[engine],
         nullable: false,
         autoIncrement: true,
         primary: true,

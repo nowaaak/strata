@@ -47,16 +47,21 @@ pub struct DumpProgress {
 }
 
 pub fn binary_literal(dialect: Dialect, value: &str) -> Option<String> {
-    if !dialect.is_mysql() {
+    if dialect.is_postgres() {
         return None;
     }
     let hex = value.strip_prefix("0x")?;
     if hex.is_empty() {
         return Some("X''".into());
     }
-    hex.chars()
-        .all(|c| c.is_ascii_hexdigit())
-        .then(|| value.to_string())
+    if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(if dialect.is_sqlite() {
+        format!("X'{hex}'")
+    } else {
+        value.to_string()
+    })
 }
 
 pub struct InsertWriter<'a> {
@@ -196,6 +201,11 @@ pub fn strip_definer(ddl: &str) -> String {
 }
 
 pub fn header(dialect: Dialect, database: &str, server: &str, schema: Option<&str>) -> String {
+    let database = if dialect.is_sqlite() {
+        "main"
+    } else {
+        database
+    };
     let mut out = format!(
         "-- Strata SQL dump\n-- Database: {database}\n-- Server: {server}\n-- Created: {}\n\n",
         chrono_like_now()
@@ -215,6 +225,7 @@ pub fn header(dialect: Dialect, database: &str, server: &str, schema: Option<&st
                 ));
             }
         }
+        Dialect::Sqlite => out.push_str("PRAGMA foreign_keys = OFF;\nBEGIN;\n\n"),
     }
     out
 }
@@ -290,6 +301,9 @@ pub fn footer(dialect: Dialect, deferred: &[String]) -> String {
     }
     if dialect.is_mysql() {
         out.push_str("\nSET FOREIGN_KEY_CHECKS = 1;\n");
+    }
+    if dialect.is_sqlite() {
+        out.push_str("\nCOMMIT;\nPRAGMA foreign_keys = ON;\n");
     }
     out
 }

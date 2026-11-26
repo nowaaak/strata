@@ -32,10 +32,15 @@ const MYSQL_PROCESSES: &str = "SELECT ID, USER, HOST, DB, COMMAND, STATE, TIME, 
 
 const PG_PROCESSES: &str = "SELECT pid, usename, COALESCE(client_addr::text, client_hostname), datname, state, wait_event, EXTRACT(EPOCH FROM now() - COALESCE(query_start, backend_start))::bigint, query, pid = pg_backend_pid() FROM pg_stat_activity WHERE backend_type = 'client backend' ORDER BY 7 DESC NULLS LAST, pid";
 
-pub(crate) fn processes_sql(dialect: Dialect) -> &'static str {
+fn not_for_sqlite() -> CoreError {
+    CoreError::InvalidInput("a SQLite file has no server processes".into())
+}
+
+pub(crate) fn processes_sql(dialect: Dialect) -> CoreResult<&'static str> {
     match dialect {
-        Dialect::MySql { .. } => MYSQL_PROCESSES,
-        Dialect::Postgres { .. } => PG_PROCESSES,
+        Dialect::MySql { .. } => Ok(MYSQL_PROCESSES),
+        Dialect::Postgres { .. } => Ok(PG_PROCESSES),
+        Dialect::Sqlite => Err(not_for_sqlite()),
     }
 }
 
@@ -73,7 +78,7 @@ pub(crate) fn parse_processes(dialect: Dialect, rows: Vec<Row>) -> Vec<ProcessIn
                     let active = !matches!(command.as_deref(), Some("Sleep" | "Daemon"));
                     (joined(command, cell(row, 5)), active)
                 }
-                Dialect::Postgres { .. } => {
+                Dialect::Postgres { .. } | Dialect::Sqlite => {
                     let state = cell(row, 4);
                     let active = !matches!(state.as_deref(), Some("idle") | None);
                     (joined(state, cell(row, 5)), active)
@@ -106,6 +111,7 @@ pub(crate) fn kill_sql(dialect: Dialect, id: &str, mode: KillMode) -> CoreResult
         (Dialect::Postgres { .. }, KillMode::Connection) => {
             format!("SELECT pg_terminate_backend({id})")
         }
+        (Dialect::Sqlite, _) => return Err(not_for_sqlite()),
     })
 }
 

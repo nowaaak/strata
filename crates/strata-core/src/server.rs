@@ -45,12 +45,71 @@ const PG_STATUS: &str = "SELECT key, value, category FROM (\
     ) WITH ORDINALITY AS u(key, value, ordinality) WHERE d.datname = current_database()\
 ) s ORDER BY sort";
 
-pub(crate) fn server_info_sql(dialect: Dialect, kind: ServerInfoKind) -> &'static str {
+const SQLITE_PRAGMAS: &[&str] = &[
+    "application_id",
+    "auto_vacuum",
+    "automatic_index",
+    "busy_timeout",
+    "cache_size",
+    "cache_spill",
+    "cell_size_check",
+    "checkpoint_fullfsync",
+    "defer_foreign_keys",
+    "encoding",
+    "foreign_keys",
+    "fullfsync",
+    "ignore_check_constraints",
+    "journal_mode",
+    "journal_size_limit",
+    "locking_mode",
+    "max_page_count",
+    "page_size",
+    "query_only",
+    "read_uncommitted",
+    "recursive_triggers",
+    "reverse_unordered_selects",
+    "secure_delete",
+    "synchronous",
+    "temp_store",
+    "trusted_schema",
+    "user_version",
+];
+
+const SQLITE_STATUS: &str = "SELECT 'version', sqlite_version(), 'Library' \
+    UNION ALL SELECT 'file', file, 'Database' FROM pragma_database_list WHERE name = 'main' \
+    UNION ALL SELECT 'size_bytes', (SELECT page_count FROM pragma_page_count) * (SELECT page_size FROM pragma_page_size), 'Database' \
+    UNION ALL SELECT 'page_count', page_count, 'Database' FROM pragma_page_count \
+    UNION ALL SELECT 'freelist_count', freelist_count, 'Database' FROM pragma_freelist_count \
+    UNION ALL SELECT 'tables', count(*), 'Database' FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite!_%' ESCAPE '!' \
+    UNION ALL SELECT 'views', count(*), 'Database' FROM sqlite_master WHERE type = 'view' \
+    UNION ALL SELECT 'indexes', count(*), 'Database' FROM sqlite_master WHERE type = 'index' \
+    UNION ALL SELECT 'triggers', count(*), 'Database' FROM sqlite_master WHERE type = 'trigger' \
+    UNION ALL SELECT 'data_version', data_version, 'Database' FROM pragma_data_version";
+
+fn sqlite_variables_sql() -> String {
+    SQLITE_PRAGMAS
+        .iter()
+        .map(|name| format!("SELECT '{name}', (SELECT * FROM pragma_{name}), 'PRAGMA'"))
+        .collect::<Vec<_>>()
+        .join(" UNION ALL ")
+}
+
+pub(crate) fn server_info_sql(dialect: Dialect, kind: ServerInfoKind) -> String {
+    if dialect.is_sqlite() {
+        return match kind {
+            ServerInfoKind::Variables => sqlite_variables_sql(),
+            ServerInfoKind::Status => SQLITE_STATUS.to_string(),
+        };
+    }
+    server_info_static(dialect, kind).to_string()
+}
+
+fn server_info_static(dialect: Dialect, kind: ServerInfoKind) -> &'static str {
     match (dialect, kind) {
         (Dialect::MySql { .. }, ServerInfoKind::Variables) => MYSQL_VARIABLES,
         (Dialect::MySql { .. }, ServerInfoKind::Status) => MYSQL_STATUS,
-        (Dialect::Postgres { .. }, ServerInfoKind::Variables) => PG_VARIABLES,
-        (Dialect::Postgres { .. }, ServerInfoKind::Status) => PG_STATUS,
+        (Dialect::Postgres { .. } | Dialect::Sqlite, ServerInfoKind::Variables) => PG_VARIABLES,
+        (Dialect::Postgres { .. } | Dialect::Sqlite, ServerInfoKind::Status) => PG_STATUS,
     }
 }
 

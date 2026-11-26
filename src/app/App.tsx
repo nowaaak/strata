@@ -45,6 +45,9 @@ const ServerInfoDialog = lazy(() =>
         default: module.ServerInfoDialog,
     })),
 );
+const ErDialog = lazy(() =>
+    import("@/features/er/ErDialog").then((module) => ({ default: module.ErDialog })),
+);
 const DumpDialog = lazy(() =>
     import("@/features/dump/DumpDialog").then((module) => ({ default: module.DumpDialog })),
 );
@@ -110,6 +113,9 @@ function AppShell() {
             </OnDemand>
             <OnDemand when={(ui) => ui.serverInfoSession !== null}>
                 <ServerInfoDialog />
+            </OnDemand>
+            <OnDemand when={(ui) => ui.erRequest !== null}>
+                <ErDialog />
             </OnDemand>
             <OnDemand when={(ui) => ui.dumpRequest !== null}>
                 <DumpDialog />

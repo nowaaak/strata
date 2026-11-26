@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { Engine } from "@/bindings/Engine";
 import { AlertTriangleIcon, CopyIcon, Loader2Icon } from "lucide-react";
 import { useId, useState } from "react";
 import { toast } from "sonner";
@@ -168,15 +169,7 @@ function ExplainBody({ request }: { request: NonNullable<ExplainRequest> }) {
     );
 }
 
-function PlanItem({
-    node,
-    engine,
-    depth,
-}: {
-    node: PlanNode;
-    engine: "mysql" | "postgres";
-    depth: number;
-}) {
+function PlanItem({ node, engine, depth }: { node: PlanNode; engine: Engine; depth: number }) {
     const t = useT();
     const text = t.explain;
     const accessLabel = engine === "mysql" ? text.access[node.title] : undefined;

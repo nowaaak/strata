@@ -28,6 +28,8 @@ pub fn split_statements(sql: &str, dialect: Dialect) -> Vec<SqlStatement> {
     let mut delimiter: Vec<char> = vec![';'];
     let mut start = 0usize;
     let mut has_code = false;
+    let mut words: Vec<String> = Vec::new();
+    let mut depth = 0usize;
     let mut i = 0usize;
 
     while i < chars.len() {
@@ -42,16 +44,33 @@ pub fn split_statements(sql: &str, dialect: Dialect) -> Vec<SqlStatement> {
             start = i;
             continue;
         }
-        if chars[i..].starts_with(&delimiter) {
+        if chars[i..].starts_with(&delimiter) && !(is_trigger(&words) && depth > 0) {
             if has_code {
                 statements.push(make_statement(&chars, &utf16, start, i, dialect));
             }
             i += delimiter.len();
             start = i;
             has_code = false;
+            words.clear();
+            depth = 0;
             continue;
         }
         let (token, end) = next_token(&chars, i, dialect);
+        if dialect.is_sqlite()
+            && let Token::Word { start, end } = token
+        {
+            let word = chars[start..end].iter().collect::<String>().to_uppercase();
+            if is_trigger(&words) {
+                match word.as_str() {
+                    "BEGIN" | "CASE" => depth += 1,
+                    "END" => depth = depth.saturating_sub(1),
+                    _ => {}
+                }
+            }
+            if words.len() < 4 {
+                words.push(word);
+            }
+        }
         if !matches!(token, Token::Whitespace | Token::Comment) {
             has_code = true;
         }
@@ -61,6 +80,18 @@ pub fn split_statements(sql: &str, dialect: Dialect) -> Vec<SqlStatement> {
         statements.push(make_statement(&chars, &utf16, start, chars.len(), dialect));
     }
     statements
+}
+
+fn is_trigger(words: &[String]) -> bool {
+    let rest = match words.first().map(String::as_str) {
+        Some("CREATE") => &words[1..],
+        _ => return false,
+    };
+    let rest = match rest.first().map(String::as_str) {
+        Some("TEMP" | "TEMPORARY") => &rest[1..],
+        _ => rest,
+    };
+    rest.first().is_some_and(|word| word == "TRIGGER")
 }
 
 fn make_statement(
@@ -140,6 +171,9 @@ pub fn is_write(text: &str, dialect: Dialect) -> bool {
     let first = first.text.as_str();
     if PURE_READ.contains(&first) {
         return false;
+    }
+    if first == "PRAGMA" {
+        return text.contains('=');
     }
     if first == "SET" {
         return words
@@ -293,5 +327,27 @@ mod tests {
         for sql in writes {
             assert!(is_write(sql, Dialect::POSTGRES), "{sql} should be a write");
         }
+    }
+
+    #[test]
+    fn sqlite_trigger_bodies_stay_in_one_statement() {
+        let sql = "CREATE TRIGGER t1 AFTER INSERT ON a BEGIN UPDATE b SET n = CASE WHEN n > 0 THEN 1 END; INSERT INTO c VALUES (1); END;\nCREATE TEMP TRIGGER t2 BEFORE DELETE ON a BEGIN SELECT 1; END; SELECT [x;y], `a;b` FROM a; SELECT 2";
+        let parts = texts(sql, Dialect::Sqlite);
+        assert_eq!(parts.len(), 4, "{parts:?}");
+        assert!(
+            parts[0].ends_with("INSERT INTO c VALUES (1); END"),
+            "{}",
+            parts[0]
+        );
+        assert!(parts[1].starts_with("CREATE TEMP TRIGGER"));
+        assert_eq!(parts[2], "SELECT [x;y], `a;b` FROM a");
+        assert_eq!(texts("BEGIN; SELECT 1; END;", Dialect::Sqlite).len(), 3);
+    }
+
+    #[test]
+    fn sqlite_pragmas_only_write_with_an_assignment() {
+        assert!(!is_write("PRAGMA table_info(t)", Dialect::Sqlite));
+        assert!(is_write("PRAGMA foreign_keys = OFF", Dialect::Sqlite));
+        assert!(is_write("VACUUM", Dialect::Sqlite));
     }
 }

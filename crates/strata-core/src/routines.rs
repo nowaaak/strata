@@ -56,6 +56,23 @@ pub(crate) fn pg_routines_sql(dialect: Dialect, schema: &str) -> String {
     )
 }
 
+pub(crate) fn sqlite_routines_sql(dialect: Dialect, database: &str) -> String {
+    format!(
+        "SELECT 'trigger', 'TRIGGER', name, tbl_name, NULL FROM {}.sqlite_master WHERE type = 'trigger' ORDER BY name",
+        dialect.quote_ident(database)
+    )
+}
+
+fn sqlite_only_triggers(kind: RoutineKind) -> CoreResult<()> {
+    if kind == RoutineKind::Trigger {
+        Ok(())
+    } else {
+        Err(CoreError::InvalidInput(
+            "SQLite only has triggers, no functions, procedures, events or sequences".into(),
+        ))
+    }
+}
+
 fn cell(row: &Row, index: usize) -> Option<String> {
     row.get(index)
         .cloned()
@@ -179,6 +196,14 @@ pub(crate) fn ddl_query(dialect: Dialect, target: &RoutineTarget) -> CoreResult<
                 return Err(CoreError::InvalidInput("PostgreSQL has no events".into()));
             }
         },
+        Dialect::Sqlite => {
+            sqlite_only_triggers(routine.kind)?;
+            DdlQuery::Value(format!(
+                "SELECT sql || ';' FROM {}.sqlite_master WHERE type = 'trigger' AND name = {}",
+                dialect.quote_ident(&target.database),
+                dialect.quote_literal(name)
+            ))
+        }
     })
 }
 
@@ -236,6 +261,13 @@ pub(crate) fn drop_statement(dialect: Dialect, target: &RoutineTarget) -> CoreRe
                 return Err(CoreError::InvalidInput("PostgreSQL has no events".into()));
             }
         },
+        Dialect::Sqlite => {
+            sqlite_only_triggers(routine.kind)?;
+            format!(
+                "DROP TRIGGER {}",
+                dialect.qualified(&[&target.database, name])
+            )
+        }
     })
 }
 

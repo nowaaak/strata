@@ -185,6 +185,11 @@ pub(crate) fn columns_sql(dialect: Dialect, target: &TableTarget) -> String {
             "SELECT a.attname, format_type(a.atttypid, a.atttypmod), CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END, pg_get_expr(d.adbin, d.adrelid), a.attidentity, a.attgenerated, col_description(a.attrelid, a.attnum) FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum WHERE a.attrelid = {} AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum",
             regclass(dialect, target)
         ),
+        Dialect::Sqlite => format!(
+            "SELECT name, type, CASE WHEN \"notnull\" = 1 THEN 'NO' ELSE 'YES' END, dflt_value, CASE WHEN pk = 1 AND upper(type) = 'INTEGER' AND (SELECT count(*) FROM pragma_table_info({table}, {schema}) WHERE pk > 0) = 1 THEN 'rowid' END, CASE WHEN hidden IN (2, 3) THEN 's' END, NULL FROM pragma_table_xinfo({table}, {schema}) WHERE hidden <> 1 ORDER BY cid",
+            table = dialect.quote_literal(&target.table),
+            schema = dialect.quote_literal(&target.database)
+        ),
     }
 }
 
@@ -199,11 +204,19 @@ pub(crate) fn indexes_sql(dialect: Dialect, target: &TableTarget) -> String {
             "SELECT ic.relname, CASE WHEN i.indisunique THEN 'YES' ELSE 'NO' END, CASE WHEN i.indisprimary THEN 'YES' ELSE 'NO' END, a.attname, c.conname, CASE WHEN i.indpred IS NULL THEN 'NO' ELSE 'YES' END FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid CROSS JOIN LATERAL unnest(i.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord) LEFT JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum LEFT JOIN pg_constraint c ON c.conindid = i.indexrelid AND c.conrelid = i.indrelid WHERE i.indrelid = {} AND k.ord <= i.indnkeyatts ORDER BY i.indisprimary DESC, ic.relname, k.ord",
             regclass(dialect, target)
         ),
+        Dialect::Sqlite => format!(
+            "SELECT * FROM (SELECT 'PRIMARY', 'YES', 'YES', name, NULL, 'NO' FROM pragma_table_info({table}, {schema}) WHERE pk > 0 ORDER BY pk) UNION ALL SELECT * FROM (SELECT il.name, CASE WHEN il.\"unique\" = 1 THEN 'YES' ELSE 'NO' END, 'NO', ii.name, NULL, CASE WHEN il.partial = 1 OR il.origin = 'u' THEN 'YES' ELSE 'NO' END FROM pragma_index_list({table}, {schema}) il, pragma_index_info(il.name, {schema}) ii WHERE il.origin <> 'pk' ORDER BY il.name, ii.seqno)",
+            table = dialect.quote_literal(&target.table),
+            schema = dialect.quote_literal(&target.database)
+        ),
     }
 }
 
 pub(crate) fn foreign_keys_sql(dialect: Dialect, target: &TableTarget) -> String {
     match dialect {
+        Dialect::Sqlite => {
+            crate::schema::sqlite_foreign_keys_sql(dialect, &target.database, Some(&target.table))
+        }
         Dialect::MySql { .. } => format!(
             "SELECT k.CONSTRAINT_NAME, k.COLUMN_NAME, k.REFERENCED_TABLE_SCHEMA, NULL, k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME, r.DELETE_RULE, r.UPDATE_RULE FROM information_schema.KEY_COLUMN_USAGE k JOIN information_schema.REFERENTIAL_CONSTRAINTS r ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME AND r.TABLE_NAME = k.TABLE_NAME WHERE k.TABLE_SCHEMA = {} AND k.TABLE_NAME = {} AND k.REFERENCED_TABLE_NAME IS NOT NULL ORDER BY k.CONSTRAINT_NAME, k.ORDINAL_POSITION",
             dialect.quote_literal(&target.database),
@@ -300,7 +313,7 @@ pub(crate) fn parse_columns(dialect: Dialect, rows: Vec<Row>) -> Vec<ColumnDesig
                         comment: cell(row, 6),
                     }
                 }
-                Dialect::Postgres { .. } => ColumnDesign {
+                Dialect::Postgres { .. } | Dialect::Sqlite => ColumnDesign {
                     name,
                     data_type,
                     nullable,
@@ -521,6 +534,22 @@ fn column_definition(
                 parts.push(format!("DEFAULT {default}"));
             }
         }
+        Dialect::Sqlite => {
+            if column.auto_increment {
+                if !data_type.eq_ignore_ascii_case("integer") {
+                    return Err(CoreError::InvalidInput(
+                        "SQLite only counts up an INTEGER primary key column".into(),
+                    ));
+                }
+                parts.push("PRIMARY KEY AUTOINCREMENT".into());
+            }
+            if !column.nullable {
+                parts.push("NOT NULL".into());
+            }
+            if let Some(default) = default {
+                parts.push(format!("DEFAULT {default}"));
+            }
+        }
     }
     Ok(parts.join(" "))
 }
@@ -533,11 +562,57 @@ fn position_clause(dialect: Dialect, position: Option<&ColumnPosition>) -> CoreR
                 "PostgreSQL cannot change the column order of an existing table".into(),
             ));
         }
+        (Dialect::Sqlite, Some(_)) => {
+            return Err(sqlite_rebuild("the column order"));
+        }
         (Dialect::MySql { .. }, Some(ColumnPosition::First)) => " FIRST".into(),
         (Dialect::MySql { .. }, Some(ColumnPosition::After { column })) => {
             format!(" AFTER {}", dialect.quote_ident(identifier_name(column)?))
         }
     })
+}
+
+fn sqlite_rebuild(what: &str) -> CoreError {
+    CoreError::InvalidInput(format!(
+        "SQLite cannot change {what} of an existing table without recreating it"
+    ))
+}
+
+fn sqlite_change(
+    table: &str,
+    current: &ColumnDesign,
+    column: &ColumnDef,
+) -> CoreResult<Vec<String>> {
+    let data_type = fragment(&column.data_type, "data type")?;
+    if !same_type(data_type, &current.data_type) {
+        return Err(sqlite_rebuild("the type of a column"));
+    }
+    if column.nullable != current.nullable {
+        return Err(sqlite_rebuild("NULL of a column"));
+    }
+    if !matches!(column.default, DefaultValue::Keep) {
+        return Err(sqlite_rebuild("the default of a column"));
+    }
+    if column.auto_increment != current.auto_increment {
+        return Err(sqlite_rebuild("auto increment"));
+    }
+    if column
+        .comment
+        .as_deref()
+        .is_some_and(|comment| !comment.is_empty())
+    {
+        return Err(CoreError::InvalidInput(
+            "SQLite has no column comments".into(),
+        ));
+    }
+    if column.name == current.name {
+        return Ok(Vec::new());
+    }
+    Ok(vec![format!(
+        "ALTER TABLE {table} RENAME COLUMN {} TO {}",
+        Dialect::Sqlite.quote_ident(&current.name),
+        Dialect::Sqlite.quote_ident(identifier_name(&column.name)?)
+    )])
 }
 
 fn postgres_comment(
@@ -690,6 +765,9 @@ pub(crate) fn alter_statements(
         match op {
             AlterOp::DropForeignKey { name } => {
                 find_foreign_key(design, name)?;
+                if dialect.is_sqlite() {
+                    return Err(sqlite_rebuild("the foreign keys"));
+                }
                 let key = dialect.quote_ident(name);
                 drop_keys.push(if mysql {
                     format!("DROP FOREIGN KEY {key}")
@@ -709,6 +787,15 @@ pub(crate) fn alter_statements(
                         ),
                         None => format!("DROP INDEX {}", dialect.qualified(&[schema, name])),
                     },
+                    Dialect::Sqlite if index.primary => {
+                        return Err(sqlite_rebuild("the primary key"));
+                    }
+                    Dialect::Sqlite => {
+                        format!(
+                            "DROP INDEX {}",
+                            dialect.qualified(&[&target.database, name])
+                        )
+                    }
                 });
             }
             AlterOp::ChangeColumn {
@@ -732,6 +819,7 @@ pub(crate) fn alter_statements(
                     Dialect::Postgres { .. } => {
                         columns.extend(postgres_change(dialect, &table, current, column)?)
                     }
+                    Dialect::Sqlite => columns.extend(sqlite_change(&table, current, column)?),
                 }
             }
             AlterOp::AddColumn { column, position } => {
@@ -746,6 +834,14 @@ pub(crate) fn alter_statements(
                         if let Some(comment) = new_comment(column) {
                             columns.push(postgres_comment(dialect, &table, &column.name, comment)?);
                         }
+                    }
+                    Dialect::Sqlite => {
+                        if new_comment(column).is_some() {
+                            return Err(CoreError::InvalidInput(
+                                "SQLite has no column comments".into(),
+                            ));
+                        }
+                        columns.push(format!("ALTER TABLE {table} ADD COLUMN {definition}"));
                     }
                 }
             }
@@ -766,13 +862,22 @@ pub(crate) fn alter_statements(
                 let index = dialect.quote_ident(identifier_name(name)?);
                 let columns = index_columns(dialect, columns)?;
                 let unique = if *unique { "UNIQUE " } else { "" };
-                add_indexes.push(if mysql {
-                    format!("ADD {unique}INDEX {index} ({columns})")
-                } else {
-                    format!("CREATE {unique}INDEX {index} ON {table} ({columns})")
+                add_indexes.push(match dialect {
+                    Dialect::MySql { .. } => format!("ADD {unique}INDEX {index} ({columns})"),
+                    Dialect::Postgres { .. } => {
+                        format!("CREATE {unique}INDEX {index} ON {table} ({columns})")
+                    }
+                    Dialect::Sqlite => format!(
+                        "CREATE {unique}INDEX {}.{index} ON {} ({columns})",
+                        dialect.quote_ident(&target.database),
+                        dialect.quote_ident(&target.table)
+                    ),
                 });
             }
             AlterOp::AddPrimaryKey { columns } => {
+                if dialect.is_sqlite() {
+                    return Err(sqlite_rebuild("the primary key"));
+                }
                 if !add_primary.is_empty() {
                     return Err(CoreError::InvalidInput(
                         "a table can only have one primary key".into(),
@@ -793,6 +898,9 @@ pub(crate) fn alter_statements(
                 on_delete,
                 on_update,
             } => {
+                if dialect.is_sqlite() {
+                    return Err(sqlite_rebuild("the foreign keys"));
+                }
                 if columns.len() != target_columns.len() {
                     return Err(CoreError::InvalidInput(
                         "a foreign key needs as many referenced columns as columns".into(),
@@ -866,17 +974,26 @@ pub(crate) fn create_statements(
                 )));
             }
         }
-        lines.push(format!(
-            "PRIMARY KEY ({})",
-            index_columns(dialect, &table.primary_key)?
-        ));
+        let inline =
+            dialect.is_sqlite() && table.columns.iter().any(|column| column.auto_increment);
+        if inline && table.primary_key.len() != 1 {
+            return Err(CoreError::InvalidInput(
+                "SQLite only counts up a single INTEGER primary key column".into(),
+            ));
+        }
+        if !inline {
+            lines.push(format!(
+                "PRIMARY KEY ({})",
+                index_columns(dialect, &table.primary_key)?
+            ));
+        }
     }
     let qualified = table.target.qualified(dialect);
     let mut statements = vec![format!(
         "CREATE TABLE {qualified} (\n    {}\n)",
         lines.join(",\n    ")
     )];
-    if !dialect.is_mysql() {
+    if dialect.is_postgres() {
         for column in &table.columns {
             if let Some(comment) = new_comment(column) {
                 statements.push(postgres_comment(

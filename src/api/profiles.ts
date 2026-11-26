@@ -27,3 +27,5 @@ export const renameGroup = (from: string, to: string | null) =>
 
 export const setSshHostKey = (id: string, fingerprint: string | null) =>
     call<ConnectionProfile>("set_ssh_host_key", { id, fingerprint });
+
+export const createSqliteFile = (path: string) => call<void>("create_sqlite_file", { path });

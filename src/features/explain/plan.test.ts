@@ -49,5 +49,31 @@ describe("plan parsing", () => {
     it("rejects unknown formats", () => {
         expect(() => parsePlan("postgres", "{}")).toThrow();
         expect(() => parsePlan("mysql", "[]")).toThrow();
+        expect(() => parsePlan("sqlite", "[]")).toThrow();
+    });
+
+    it("builds a tree from SQLite query plan steps", () => {
+        const plan = parsePlan(
+            "sqlite",
+            JSON.stringify({
+                sqlite: [
+                    { id: 2, parent: 0, detail: "SCAN b" },
+                    { id: 4, parent: 0, detail: "SEARCH k USING INTEGER PRIMARY KEY (rowid=?)" },
+                    { id: 7, parent: 0, detail: "USE TEMP B-TREE FOR ORDER BY" },
+                    { id: 9, parent: 2, detail: "SCAN c USING COVERING INDEX c_x" },
+                ],
+            }),
+        );
+        expect(plan.root.title).toBe("QUERY PLAN");
+        expect(plan.root.children.map((child) => child.title)).toEqual([
+            "SCAN b",
+            "SEARCH k USING INTEGER PRIMARY KEY (rowid=?)",
+            "USE TEMP B-TREE FOR ORDER BY",
+        ]);
+        expect(plan.root.children[0]?.target).toBe("b");
+        expect(plan.root.children[0]?.warnings).toEqual(["fullScan"]);
+        expect(plan.root.children[0]?.children[0]?.warnings).toEqual([]);
+        expect(plan.root.children[2]?.warnings).toEqual(["filesort"]);
+        expect(countWarnings(plan.root)).toBe(2);
     });
 });

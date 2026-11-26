@@ -1,3 +1,4 @@
+import type { SchemaGraph } from "@/bindings/SchemaGraph";
 import type { CompletionTable } from "@/bindings/CompletionTable";
 import type { DbObject } from "@/bindings/DbObject";
 import type { Routine } from "@/bindings/Routine";
@@ -13,6 +14,9 @@ export const listSchemas = (sessionId: string, database: string) =>
 
 export const listObjects = (sessionId: string, database: string, schema: string | null) =>
     call<DbObject[]>("list_objects", { sessionId, database, schema });
+
+export const schemaGraph = (sessionId: string, database: string, schema: string | null) =>
+    call<SchemaGraph>("schema_graph", { sessionId, database, schema });
 
 export const describeTable = (sessionId: string, target: TableTarget) =>
     call<TableInfo>("describe_table", { sessionId, target });

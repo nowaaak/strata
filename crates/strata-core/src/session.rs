@@ -13,6 +13,7 @@ use crate::driver::{
 };
 use crate::dump::{self, DumpOptions, DumpProgress, DumpSummary, InsertWriter, RoutineDump};
 use crate::export::{ExportFormat, ExportSource, ExportSummary, StreamWriter};
+use crate::graph::{self, SchemaGraph};
 use crate::import::{self, CsvImport, ImportSummary};
 use crate::processes::{self, KillMode, ProcessInfo};
 use crate::profiles::{ConnectionProfile, Engine, PasswordUpdate, ProfileStore, Safety};
@@ -258,10 +259,32 @@ fn connect_params(
     }
 }
 
+fn sqlite_plan_json(rows: &[Row]) -> String {
+    let steps: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            let number = |index: usize| {
+                row.get(index)
+                    .cloned()
+                    .flatten()
+                    .and_then(|value| value.parse::<i64>().ok())
+                    .unwrap_or_default()
+            };
+            serde_json::json!({
+                "id": number(0),
+                "parent": number(1),
+                "detail": row.get(3).cloned().flatten().unwrap_or_default(),
+            })
+        })
+        .collect();
+    serde_json::json!({ "sqlite": steps }).to_string()
+}
+
 fn meta_key(dialect: Dialect, database: Option<&str>) -> String {
     match dialect {
         Dialect::MySql { .. } => String::new(),
         Dialect::Postgres { .. } => database.unwrap_or_default().to_string(),
+        Dialect::Sqlite => String::new(),
     }
 }
 
@@ -387,7 +410,7 @@ impl Session {
         let sql = ddl_statement(self.dialect, action)?;
         let affected = action
             .affected_database()
-            .filter(|_| !self.dialect.is_mysql());
+            .filter(|_| self.dialect.is_postgres());
         let database = match affected {
             Some(affected) => Some(self.maintenance_database(affected)),
             None => action
@@ -552,6 +575,7 @@ impl Session {
             Dialect::Postgres { .. } => {
                 routines::pg_routines_sql(self.dialect, schema.unwrap_or("public"))
             }
+            Dialect::Sqlite => routines::sqlite_routines_sql(self.dialect, database),
         };
         let rows = self.meta_rows(Some(database), &sql).await?;
         Ok(routines::parse_routines(self.dialect, rows))
@@ -750,7 +774,7 @@ impl Session {
                 "explain needs exactly one statement".into(),
             ));
         };
-        if analyze && (self.dialect.is_mysql() || statement.writes) {
+        if analyze && (!self.dialect.is_postgres() || statement.writes) {
             return Err(CoreError::InvalidInput(
                 "ANALYZE runs the statement, it is only offered for reading statements on PostgreSQL"
                     .into(),
@@ -763,6 +787,7 @@ impl Session {
             (Dialect::Postgres { .. }, true) => {
                 format!("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {text}")
             }
+            (Dialect::Sqlite, _) => format!("EXPLAIN QUERY PLAN {text}"),
         };
         let wanted = database
             .map(str::to_string)
@@ -780,6 +805,9 @@ impl Session {
         .await;
         conn.close().await;
         let rows = outcome?;
+        if self.dialect.is_sqlite() {
+            return Ok(sqlite_plan_json(&rows));
+        }
         rows.into_iter()
             .next()
             .and_then(|row| row.into_iter().next().flatten())
@@ -787,7 +815,7 @@ impl Session {
     }
 
     async fn dump_table_ddl(&self, target: &TableTarget) -> CoreResult<(String, Vec<String>)> {
-        if self.dialect.is_mysql() {
+        if !self.dialect.is_postgres() {
             return Ok((self.table_ddl(target).await?, Vec::new()));
         }
         let database = Some(target.database.as_str());
@@ -841,7 +869,7 @@ impl Session {
     }
 
     async fn sequence_fixes(&self, target: &TableTarget) -> CoreResult<Vec<String>> {
-        if self.dialect.is_mysql() {
+        if !self.dialect.is_postgres() {
             return Ok(Vec::new());
         }
         let info = self.describe_table(target).await?;
@@ -908,7 +936,11 @@ impl Session {
                     _ => "TRIGGER",
                 };
                 let name = self.dialect.quote_ident(&routine.name);
-                match (mysql, routine.kind, routine.table.as_deref()) {
+                match (
+                    !self.dialect.is_postgres(),
+                    routine.kind,
+                    routine.table.as_deref(),
+                ) {
                     (true, _, _) => Some(format!("DROP {word} IF EXISTS {name}")),
                     (false, RoutineKind::Trigger, Some(table)) => Some(format!(
                         "DROP TRIGGER IF EXISTS {name} ON {}",
@@ -954,7 +986,9 @@ impl Session {
                 "choose structure, data or both".into(),
             ));
         }
-        let schema_name = (!self.dialect.is_mysql())
+        let schema_name = self
+            .dialect
+            .is_postgres()
             .then(|| options.schema.clone().unwrap_or_else(|| "public".into()));
         let objects = self
             .list_objects(&options.database, schema_name.as_deref())
@@ -972,10 +1006,10 @@ impl Session {
             table: name.to_string(),
         };
         let insert_name = |target: &TableTarget| {
-            if self.dialect.is_mysql() {
-                self.dialect.quote_ident(&target.table)
-            } else {
+            if self.dialect.is_postgres() {
                 target.qualified(self.dialect)
+            } else {
+                self.dialect.quote_ident(&target.table)
             }
         };
         let (programs, triggers) = if options.structure && options.routines {
@@ -1029,7 +1063,7 @@ impl Session {
                 .iter()
                 .partition(|object| object.kind == schema::ObjectKind::Table);
             let mut programs_pending = !programs.is_empty();
-            if programs_pending && !self.dialect.is_mysql() {
+            if programs_pending && self.dialect.is_postgres() {
                 out.write_all(programs.as_bytes()).map_err(io)?;
                 programs_pending = false;
             }
@@ -1059,10 +1093,10 @@ impl Session {
                     );
                     if options.drop_existing {
                         let kind = if is_view { "VIEW" } else { "TABLE" };
-                        let cascade = if self.dialect.is_mysql() {
-                            ""
-                        } else {
+                        let cascade = if self.dialect.is_postgres() {
                             " CASCADE"
+                        } else {
+                            ""
                         };
                         block.push_str(&format!(
                             "DROP {kind} IF EXISTS {name}{cascade};
@@ -1192,14 +1226,14 @@ impl Session {
 
     pub async fn list_processes(&self) -> CoreResult<Vec<ProcessInfo>> {
         let rows = self
-            .meta_rows(None, processes::processes_sql(self.dialect))
+            .meta_rows(None, processes::processes_sql(self.dialect)?)
             .await?;
         Ok(processes::parse_processes(self.dialect, rows))
     }
 
     pub async fn server_info(&self, kind: ServerInfoKind) -> CoreResult<Vec<ServerSetting>> {
         let rows = self
-            .meta_rows(None, server::server_info_sql(self.dialect, kind))
+            .meta_rows(None, &server::server_info_sql(self.dialect, kind))
             .await?;
         Ok(server::parse_server_info(rows))
     }
@@ -1233,7 +1267,7 @@ impl Session {
     }
 
     pub async fn list_schemas(&self, database: &str) -> CoreResult<Vec<String>> {
-        if self.dialect.is_mysql() {
+        if !self.dialect.is_postgres() {
             return Ok(Vec::new());
         }
         let rows = self
@@ -1250,6 +1284,27 @@ impl Session {
         let sql = schema::objects_sql(self.dialect, database, schema);
         let rows = self.meta_rows(Some(database), &sql).await?;
         Ok(schema::parse_objects(self.dialect, rows))
+    }
+
+    pub async fn schema_graph(
+        &self,
+        database: &str,
+        schema: Option<&str>,
+    ) -> CoreResult<SchemaGraph> {
+        let schema = schema.unwrap_or("public");
+        let columns = self
+            .meta_rows(
+                Some(database),
+                &graph::columns_sql(self.dialect, database, schema),
+            )
+            .await?;
+        let keys = self
+            .meta_rows(
+                Some(database),
+                &graph::foreign_keys_sql(self.dialect, database, schema),
+            )
+            .await?;
+        Ok(graph::parse_graph(columns, keys))
     }
 
     pub async fn describe_table(&self, target: &TableTarget) -> CoreResult<TableInfo> {
@@ -1307,6 +1362,23 @@ impl Session {
 
     pub async fn table_ddl(&self, target: &TableTarget) -> CoreResult<String> {
         let database = Some(target.database.as_str());
+        if self.dialect.is_sqlite() {
+            let rows = self
+                .meta_rows(database, &schema::sqlite_ddl_sql(self.dialect, target))
+                .await?;
+            let statements: Vec<String> = rows
+                .into_iter()
+                .filter_map(|row| row.into_iter().next().flatten())
+                .map(|sql| format!("{};", sql.trim_end().trim_end_matches(';')))
+                .collect();
+            if statements.is_empty() {
+                return Err(CoreError::NotFound(format!(
+                    "table {} does not exist",
+                    target.table
+                )));
+            }
+            return Ok(statements.join("\n\n"));
+        }
         if self.dialect.is_mysql() {
             let rows = self
                 .meta_rows(database, &schema::mysql_ddl_sql(self.dialect, target))

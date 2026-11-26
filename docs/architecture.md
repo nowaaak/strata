@@ -24,6 +24,16 @@ MySQL connections use `CLIENT_FOUND_ROWS`, so an `UPDATE` reports matched rows i
 
 `sql_mode` (`NO_BACKSLASH_ESCAPES`) and `standard_conforming_strings` are read on connect. String literals are escaped to match.
 
+## SQLite
+
+SQLite runs through `rusqlite` with the library compiled in, so no DLL is needed. The connection is synchronous and runs inside `block_in_place`, which keeps the same streaming path into the `RowSink` as the server drivers. Statements go through `Batch`, values are converted from their storage class (integers and reals as text, blobs as `0x` hex like MySQL), and the column kind comes from the declared type, or from the first row for expressions. Cancel calls `sqlite3_interrupt`. Every connection switches on foreign keys and waits up to five seconds for locks, because Strata opens several connections on the same file (metadata, one per tab, export). Read-only profiles open the file read-only and set `query_only`.
+
+A profile stores the file path in `host`. Saving clears port, user, database, TLS and SSH. Opening a file that does not exist fails, so a typo does not create an empty database. New files are created explicitly with `create_sqlite_file`.
+
+In the tree the file is one database named `main`, like MySQL without schemas. The catalog comes from `sqlite_master` and the pragma functions `pragma_table_xinfo`, `pragma_index_list`, `pragma_index_info` and `pragma_foreign_key_list`. Foreign keys have no names in SQLite, Strata calls them `<table>_fk_<id>`. An `INTEGER PRIMARY KEY` is the rowid and shows as auto increment. The splitter keeps `CREATE TRIGGER ... BEGIN ... END` together and knows `[name]` and backtick identifiers. Errors read `SQLITE <extended code>: <message>`, which the error explanations use.
+
+`ALTER TABLE` in SQLite can only add, rename and drop columns. The designer therefore only allows renaming existing columns and adding new ones, plus indexes and new tables. Changing a type, NULL, a default or a key is refused with a message instead of rebuilding the table behind the user's back. There are no comments, no process list and no server databases. Server variables show a set of pragmas, the status shows file, size, pages and object counts. Execution plans use `EXPLAIN QUERY PLAN`, converted to a tree with full scans and temporary B-trees marked. A dump switches foreign keys off, runs in one transaction and writes blobs as `X'..'`.
+
 ## Sessions and tabs
 
 A session is one open connection profile. It keeps metadata connections for the schema tree (one for MySQL, one per database for PostgreSQL, because a PostgreSQL connection is bound to one database). A lost metadata connection is reopened once automatically.
@@ -173,6 +183,10 @@ Updates use `tauri-plugin-updater` from Rust. `check_for_update` asks the endpoi
 ## Logging
 
 Logs go to stdout and to a daily rotating file in the app log folder, seven files are kept. Commands log their outcome with counts and durations, never SQL text or passwords. Database errors are logged by kind only, because servers often quote parts of the statement in their message. Connecting, testing, the schema tree, table descriptions, DDL, completion and table loads write a `command timing` line with the command name, the duration and whether it succeeded, so slow steps can be found in the log of the installed app.
+
+## ER diagram
+
+`schema_graph` reads all tables and views of a database or schema with their columns, primary key flags and the foreign keys between them in two queries, capped at 400 tables. The frontend lays the connected tables out with dagre from left to right, referenced tables first, and puts tables without relations in a grid below. React Flow draws, zooms and drags, edges point to the referenced table. The diagram is loaded lazily with its libraries, about 300 KB.
 
 ## Bundle
 

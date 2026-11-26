@@ -15,6 +15,7 @@ pub use table::{SortSpec, TableQuery, select_statement};
 pub enum Dialect {
     MySql { backslash_escapes: bool },
     Postgres { standard_strings: bool },
+    Sqlite,
 }
 
 impl Dialect {
@@ -27,5 +28,13 @@ impl Dialect {
 
     pub fn is_mysql(self) -> bool {
         matches!(self, Self::MySql { .. })
+    }
+
+    pub fn is_postgres(self) -> bool {
+        matches!(self, Self::Postgres { .. })
+    }
+
+    pub fn is_sqlite(self) -> bool {
+        matches!(self, Self::Sqlite)
     }
 }

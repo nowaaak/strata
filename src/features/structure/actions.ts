@@ -1,4 +1,5 @@
 import type { DdlAction } from "@/bindings/DdlAction";
+import type { Engine } from "@/bindings/Engine";
 import type { Messages } from "@/i18n/messages";
 
 export type StructureVerb = "create" | "rename" | "truncate" | "drop";
@@ -142,7 +143,7 @@ export function descriptionOf(text: Messages["structure"], action: DdlAction): s
 }
 
 export function createTableTemplate(
-    engine: "mysql" | "postgres",
+    engine: Engine,
     database: string,
     schema: string | null,
     name: string,
@@ -155,6 +156,16 @@ export function createTableTemplate(
             "    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,",
             "    name text NOT NULL,",
             "    created_at timestamptz NOT NULL DEFAULT now()",
+            ");",
+        ].join("\n");
+    }
+    if (engine === "sqlite") {
+        const quote = (value: string) => `"${value.replace(/"/g, '""')}"`;
+        return [
+            `CREATE TABLE ${quote(name)} (`,
+            "    id INTEGER PRIMARY KEY,",
+            "    name TEXT NOT NULL,",
+            "    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP",
             ");",
         ].join("\n");
     }

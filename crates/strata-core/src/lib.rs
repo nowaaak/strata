@@ -4,6 +4,7 @@ pub mod dump;
 pub mod error;
 pub mod export;
 mod fsutil;
+pub mod graph;
 pub mod history;
 pub mod import;
 pub mod processes;

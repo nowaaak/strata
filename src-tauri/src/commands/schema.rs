@@ -1,3 +1,4 @@
+use strata_core::graph::SchemaGraph;
 use strata_core::schema::{CompletionTable, DbObject, TableInfo, TableTarget};
 use tauri::State;
 
@@ -78,4 +79,19 @@ pub fn equality_filter(
 ) -> CommandResult<String> {
     let session = state.sessions.get(&session_id)?;
     Ok(session.equality_filter(&columns, &values)?)
+}
+
+#[tauri::command]
+pub async fn schema_graph(
+    state: State<'_, AppState>,
+    session_id: String,
+    database: String,
+    schema: Option<String>,
+) -> CommandResult<SchemaGraph> {
+    let session = state.sessions.get(&session_id)?;
+    Ok(timed(
+        "schema_graph",
+        session.schema_graph(&database, schema.as_deref()),
+    )
+    .await?)
 }

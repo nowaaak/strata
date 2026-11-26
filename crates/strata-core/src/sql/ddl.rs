@@ -95,9 +95,21 @@ pub(crate) fn name(value: &str) -> CoreResult<&str> {
 }
 
 fn postgres_only(dialect: Dialect, what: &str) -> CoreResult<()> {
-    if dialect.is_mysql() {
-        return Err(CoreError::InvalidInput(format!(
+    match dialect {
+        Dialect::MySql { .. } => Err(CoreError::InvalidInput(format!(
             "MySQL and MariaDB do not support {what}"
+        ))),
+        Dialect::Sqlite => Err(CoreError::InvalidInput(format!(
+            "SQLite does not support {what}"
+        ))),
+        Dialect::Postgres { .. } => Ok(()),
+    }
+}
+
+fn server_only(dialect: Dialect, what: &str) -> CoreResult<()> {
+    if dialect.is_sqlite() {
+        return Err(CoreError::InvalidInput(format!(
+            "a SQLite file is one database, {what} is not possible"
         )));
     }
     Ok(())
@@ -122,7 +134,10 @@ fn object_word(kind: ObjectKind) -> &'static str {
 pub fn ddl_statement(dialect: Dialect, action: &DdlAction) -> CoreResult<String> {
     let q = |ident: &str| dialect.quote_ident(ident);
     Ok(match action {
-        DdlAction::CreateDatabase { name: db } => format!("CREATE DATABASE {}", q(name(db)?)),
+        DdlAction::CreateDatabase { name: db } => {
+            server_only(dialect, "creating databases")?;
+            format!("CREATE DATABASE {}", q(name(db)?))
+        }
         DdlAction::RenameDatabase { database, to } => {
             postgres_only(dialect, "renaming databases")?;
             format!(
@@ -131,7 +146,10 @@ pub fn ddl_statement(dialect: Dialect, action: &DdlAction) -> CoreResult<String>
                 q(name(to)?)
             )
         }
-        DdlAction::DropDatabase { database } => format!("DROP DATABASE {}", q(name(database)?)),
+        DdlAction::DropDatabase { database } => {
+            server_only(dialect, "dropping databases")?;
+            format!("DROP DATABASE {}", q(name(database)?))
+        }
         DdlAction::CreateSchema {
             database,
             name: schema,
@@ -178,11 +196,25 @@ pub fn ddl_statement(dialect: Dialect, action: &DdlAction) -> CoreResult<String>
                     target.qualified(dialect),
                     q(to)
                 ),
+                Dialect::Sqlite if *kind == ObjectKind::View => {
+                    return Err(CoreError::InvalidInput(
+                        "SQLite cannot rename views, drop and create it again".into(),
+                    ));
+                }
+                Dialect::Sqlite => format!(
+                    "ALTER TABLE {} RENAME TO {}",
+                    target.qualified(dialect),
+                    q(to)
+                ),
             }
         }
         DdlAction::TruncateTable { target } => {
             target_names(target)?;
-            format!("TRUNCATE TABLE {}", target.qualified(dialect))
+            if dialect.is_sqlite() {
+                format!("DELETE FROM {}", target.qualified(dialect))
+            } else {
+                format!("TRUNCATE TABLE {}", target.qualified(dialect))
+            }
         }
         DdlAction::DropObject { target, kind } => {
             target_names(target)?;

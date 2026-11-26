@@ -2272,3 +2272,85 @@ async fn postgres_18_server_info() {
 async fn postgres_18_dump_roundtrip() {
     dump_roundtrip(POSTGRES_18, "it_dump_pg18").await;
 }
+
+async fn schema_graph(server: Server, prefix: &str) {
+    let harness = open(server, Safety::Normal).await;
+    let session = &harness.session;
+    let postgres = server.engine == Engine::Postgres;
+    let schema = if postgres { "public." } else { "" };
+    let parent = format!("{prefix}_kunde");
+    let child = format!("{prefix}_position");
+    run_in(
+        session,
+        "g",
+        "strata",
+        &format!(
+            "DROP TABLE IF EXISTS {schema}{child}; DROP TABLE IF EXISTS {schema}{parent};
+             CREATE TABLE {schema}{parent} (id INT, land CHAR(2), name VARCHAR(40), PRIMARY KEY (id, land));
+             CREATE TABLE {schema}{child} (nr INT PRIMARY KEY, kunde INT NOT NULL, land CHAR(2) NOT NULL, CONSTRAINT {child}_kunde FOREIGN KEY (kunde, land) REFERENCES {schema}{parent} (id, land))"
+        ),
+    )
+    .await;
+
+    let graph = session
+        .schema_graph("strata", postgres.then_some("public"))
+        .await
+        .unwrap();
+    let table = |name: &str| {
+        graph
+            .tables
+            .iter()
+            .find(|table| table.name == name)
+            .unwrap_or_else(|| panic!("{name} missing"))
+    };
+    let kunde = table(&parent);
+    let primary: Vec<&str> = kunde
+        .columns
+        .iter()
+        .filter(|column| column.primary)
+        .map(|column| column.name.as_str())
+        .collect();
+    assert_eq!(primary, ["id", "land"]);
+    assert!(kunde.columns[2].nullable);
+    assert!(!table(&child).columns[1].nullable);
+    let key = graph
+        .foreign_keys
+        .iter()
+        .find(|key| key.table == child)
+        .expect("the foreign key must be listed");
+    assert_eq!(key.target_table, parent);
+    assert_eq!(key.columns, ["kunde", "land"]);
+    assert_eq!(key.target_columns, ["id", "land"]);
+
+    run_in(
+        session,
+        "g",
+        "strata",
+        &format!("DROP TABLE {schema}{child}; DROP TABLE {schema}{parent}"),
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_schema_graph() {
+    schema_graph(MYSQL, "it_graph_mysql").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_schema_graph() {
+    schema_graph(MARIADB, "it_graph_mariadb").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_schema_graph() {
+    schema_graph(POSTGRES, "it_graph_pg").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_18_schema_graph() {
+    schema_graph(POSTGRES_18, "it_graph_pg18").await;
+}

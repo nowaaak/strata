@@ -70,3 +70,11 @@ pub async fn rename_group(
 ) -> CommandResult<u32> {
     Ok(state.profiles.rename_group(&from, to).await?)
 }
+
+#[tauri::command]
+pub fn create_sqlite_file(path: String) -> CommandResult<()> {
+    let path = std::path::PathBuf::from(path.trim());
+    strata_core::driver::create_sqlite_file(&path).map_err(strata_core::CoreError::from)?;
+    tracing::info!("sqlite database file created");
+    Ok(())
+}

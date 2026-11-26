@@ -5,7 +5,7 @@ import {
     completionKeymap,
 } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { MySQL, PostgreSQL, sql, type SQLNamespace } from "@codemirror/lang-sql";
+import { MySQL, PostgreSQL, SQLite, sql, type SQLNamespace } from "@codemirror/lang-sql";
 import { bracketMatching, indentOnInput } from "@codemirror/language";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, Prec, StateEffect, StateField } from "@codemirror/state";
@@ -82,7 +82,7 @@ function language(
     defaultSchema: string | undefined,
 ) {
     return sql({
-        dialect: engine === "postgres" ? PostgreSQL : MySQL,
+        dialect: { mysql: MySQL, postgres: PostgreSQL, sqlite: SQLite }[engine],
         schema,
         defaultSchema,
         upperCaseKeywords: true,

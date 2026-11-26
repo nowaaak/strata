@@ -15,6 +15,7 @@ use crate::{CoreError, CoreResult};
 pub enum Engine {
     Mysql,
     Postgres,
+    Sqlite,
 }
 
 impl Engine {
@@ -22,6 +23,7 @@ impl Engine {
         match self {
             Self::Mysql => 3306,
             Self::Postgres => 5432,
+            Self::Sqlite => 0,
         }
     }
 }
@@ -360,6 +362,21 @@ fn normalize(mut profile: ConnectionProfile) -> CoreResult<ConnectionProfile> {
         return Err(CoreError::InvalidInput(
             "name must be at most 100 characters".into(),
         ));
+    }
+    if profile.engine == Engine::Sqlite {
+        if profile.host.is_empty() {
+            return Err(CoreError::InvalidInput(
+                "the database file must not be empty".into(),
+            ));
+        }
+        profile.port = 0;
+        profile.user.clear();
+        profile.database = None;
+        profile.tls = TlsMode::Disabled;
+        profile.ask_password = false;
+        profile.ssh = None;
+        profile.group = normalize_group(profile.group)?;
+        return Ok(profile);
     }
     if profile.host.is_empty() {
         return Err(CoreError::InvalidInput("host must not be empty".into()));

@@ -1,5 +1,8 @@
 mod mysql;
 mod postgres;
+mod sqlite;
+
+pub use sqlite::create_file as create_sqlite_file;
 
 use std::time::Duration;
 
@@ -113,12 +116,14 @@ pub struct ConnectParams {
 pub enum Connection {
     MySql(mysql::MySqlConnection),
     Postgres(postgres::PgConnection),
+    Sqlite(sqlite::SqliteConnection),
 }
 
 #[derive(Clone)]
 pub enum CancelHandle {
     MySql(mysql::MySqlCancel),
     Postgres(postgres::PgCancel),
+    Sqlite(sqlite::SqliteCancel),
 }
 
 impl Connection {
@@ -131,6 +136,9 @@ impl Connection {
                 Engine::Postgres => postgres::PgConnection::connect(params)
                     .await
                     .map(Self::Postgres),
+                Engine::Sqlite => sqlite::SqliteConnection::connect(params)
+                    .await
+                    .map(Self::Sqlite),
             }
         };
         tokio::time::timeout(CONNECT_TIMEOUT + Duration::from_secs(5), connecting)
@@ -142,6 +150,7 @@ impl Connection {
         match self {
             Self::MySql(conn) => conn.dialect(),
             Self::Postgres(conn) => conn.dialect(),
+            Self::Sqlite(conn) => conn.dialect(),
         }
     }
 
@@ -149,6 +158,7 @@ impl Connection {
         match self {
             Self::MySql(conn) => conn.details(),
             Self::Postgres(conn) => conn.details(),
+            Self::Sqlite(conn) => conn.details(),
         }
     }
 
@@ -156,12 +166,13 @@ impl Connection {
         match self {
             Self::MySql(conn) => CancelHandle::MySql(conn.cancel_handle()),
             Self::Postgres(conn) => CancelHandle::Postgres(conn.cancel_handle()),
+            Self::Sqlite(conn) => CancelHandle::Sqlite(conn.cancel_handle()),
         }
     }
 
     pub fn is_closed(&self) -> bool {
         match self {
-            Self::MySql(_) => false,
+            Self::MySql(_) | Self::Sqlite(_) => false,
             Self::Postgres(conn) => conn.is_closed(),
         }
     }
@@ -170,6 +181,7 @@ impl Connection {
         match self {
             Self::MySql(conn) => conn.run(sql, sink).await,
             Self::Postgres(conn) => conn.run(sql, sink).await,
+            Self::Sqlite(conn) => conn.run(sql, sink).await,
         }
     }
 
@@ -190,6 +202,10 @@ impl Connection {
             Self::Postgres(_) => Err(DbError::message(
                 "PostgreSQL connections are bound to one database",
             )),
+            Self::Sqlite(_) if database == "main" => Ok(()),
+            Self::Sqlite(_) => Err(DbError::message(
+                "SQLite connections only use the main database",
+            )),
         }
     }
 
@@ -197,6 +213,7 @@ impl Connection {
         match self {
             Self::MySql(conn) => conn.close().await,
             Self::Postgres(conn) => conn.close(),
+            Self::Sqlite(conn) => conn.close().await,
         }
     }
 }
@@ -206,6 +223,7 @@ impl CancelHandle {
         match self {
             Self::MySql(handle) => handle.cancel().await,
             Self::Postgres(handle) => handle.cancel().await,
+            Self::Sqlite(handle) => handle.cancel().await,
         }
     }
 }

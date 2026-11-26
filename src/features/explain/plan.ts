@@ -1,3 +1,5 @@
+import type { Engine } from "@/bindings/Engine";
+
 export type PlanWarning = "fullScan" | "filesort" | "temporary" | "misestimate" | "diskSort";
 
 export type PlanNode = {
@@ -223,8 +225,47 @@ function mysqlTable(table: Json): PlanNode {
     return result;
 }
 
-export function parsePlan(engine: "mysql" | "postgres", json: string): Plan {
+function sqliteWarnings(detail: string): PlanWarning[] {
+    const warnings: PlanWarning[] = [];
+    if (/^SCAN /.test(detail) && !/ USING (COVERING )?INDEX /.test(detail)) {
+        warnings.push("fullScan");
+    }
+    if (/USE TEMP B-TREE FOR (ORDER BY|RIGHT PART OF ORDER BY)/.test(detail)) {
+        warnings.push("filesort");
+    }
+    if (/USE TEMP B-TREE FOR (GROUP BY|DISTINCT)/.test(detail)) {
+        warnings.push("temporary");
+    }
+    return warnings;
+}
+
+function sqlitePlan(steps: unknown[]): PlanNode {
+    const root = node("QUERY PLAN");
+    const nodes = new Map<number, PlanNode>([[0, root]]);
+    for (const step of steps) {
+        if (!isObject(step)) {
+            continue;
+        }
+        const detail = str(step["detail"]) ?? "";
+        const target = /^(?:SCAN|SEARCH) (\S+)/.exec(detail)?.[1] ?? null;
+        const current = node(detail, target);
+        current.warnings = sqliteWarnings(detail);
+        const id = num(step["id"]) ?? nodes.size;
+        const parent = nodes.get(num(step["parent"]) ?? 0) ?? root;
+        parent.children.push(current);
+        nodes.set(id, current);
+    }
+    return root.children.length === 1 ? root.children[0]! : root;
+}
+
+export function parsePlan(engine: Engine, json: string): Plan {
     const value: unknown = JSON.parse(json);
+    if (engine === "sqlite") {
+        if (!isObject(value) || !Array.isArray(value["sqlite"])) {
+            throw new Error("unexpected SQLite plan format");
+        }
+        return { root: sqlitePlan(value["sqlite"]), planningMs: null, executionMs: null };
+    }
     if (engine === "postgres") {
         const first = Array.isArray(value) ? value[0] : value;
         if (!isObject(first) || !isObject(first["Plan"])) {

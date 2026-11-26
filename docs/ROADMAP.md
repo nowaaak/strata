@@ -4,15 +4,15 @@ Effort: S is up to a day, M a few days, L a week or more.
 
 ## Later
 
-| Item                          | Why                           | Effort |
-| ----------------------------- | ----------------------------- | ------ |
-| SQLite support                | Local files without a server. | L      |
-| ER diagram of a schema        | Overview of larger databases. | L      |
-| User and privilege management | Admin tasks HeidiSQL covers.  | L      |
-| macOS and Linux builds        | Only Windows has been run.    | M      |
+| Item                                                             | Why                                          | Effort |
+| ---------------------------------------------------------------- | -------------------------------------------- | ------ |
+| User and privilege management                                    | Admin tasks HeidiSQL covers.                 | L      |
+| SQLite table rebuild in the designer (type, NULL, default, keys) | SQLite cannot change these with ALTER TABLE. | M      |
+| macOS and Linux builds                                           | Only Windows has been run.                   | M      |
 
 ## Done
 
+- SQLite files with tree, queries, editing, ER diagram, dump, execution plans, pragmas and a designer limited to what SQLite can change in place, and an ER diagram for every engine. Tested against MySQL, MariaDB, PostgreSQL 17 and 18 and SQLite.
 - Routines, events and triggers in the SQL dump, table designer with primary key, column order (MySQL, MariaDB), comments and foreign keys, server variables and status, and a split frontend bundle. Tested against MySQL, MariaDB and PostgreSQL 17 and 18.
 - SQL dump with restore tested on MySQL, MariaDB and PostgreSQL, error explanations by error code, drag and drop into groups, snippets, execution plans, find and replace in table data and configurable shortcuts.
 - Functions, procedures, triggers, events and sequences in the schema tree with DDL and delete, foreign key navigation from a cell, full export without the row buffer limit, and CSV import with column mapping. Tested against MySQL, MariaDB and PostgreSQL 17 and 18.

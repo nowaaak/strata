@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { Engine } from "@/bindings/Engine";
 import type { ConnectionProfile } from "@/bindings/ConnectionProfile";
 import type { DdlAction } from "@/bindings/DdlAction";
 import type { TableTarget } from "@/bindings/TableTarget";
@@ -39,11 +40,13 @@ export type ExplainRequest = {
     sessionId: string;
     database: string | null;
     sql: string;
-    engine: "mysql" | "postgres";
+    engine: Engine;
     writes: boolean;
 } | null;
 
 export type DumpRequest = { sessionId: string; database: string; schema: string | null } | null;
+
+export type ErRequest = { sessionId: string; database: string; schema: string | null } | null;
 
 export type SnippetsDialogState = { tabId: string | null } | null;
 
@@ -72,6 +75,8 @@ export type UiState = {
     setProcessListSession: (sessionId: string | null) => void;
     serverInfoSession: string | null;
     setServerInfoSession: (sessionId: string | null) => void;
+    erRequest: ErRequest;
+    setErRequest: (request: ErRequest) => void;
     historyDialog: HistoryDialogState;
     setHistoryDialog: (state: HistoryDialogState) => void;
     hostKeyPrompt: HostKeyPrompt;
@@ -112,6 +117,8 @@ export const useUiStore = create<UiState>((set, get) => ({
     setProcessListSession: (processListSession) => set({ processListSession, paletteOpen: false }),
     serverInfoSession: null,
     setServerInfoSession: (serverInfoSession) => set({ serverInfoSession, paletteOpen: false }),
+    erRequest: null,
+    setErRequest: (erRequest) => set({ erRequest, paletteOpen: false }),
     historyDialog: null,
     setHistoryDialog: (historyDialog) => set({ historyDialog, paletteOpen: false }),
     hostKeyPrompt: null,
