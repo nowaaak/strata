@@ -1,7 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
     ActivityIcon,
+    BookmarkIcon,
     FileCode2Icon,
+    GaugeIcon,
     HistoryIcon,
     MonitorIcon,
     MoonIcon,
@@ -23,10 +25,14 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { requestConnect, useDisconnect } from "@/features/connections/connect";
 import { useProfiles } from "@/features/connections/useProfiles";
 import { formatQueryTab } from "@/features/query-editor/formatAction";
+import { insertSnippet } from "@/features/snippets/insert";
+import { useSnippets } from "@/features/snippets/useSnippets";
 import { THEMES } from "@/features/settings/theme";
 import { useSettings, useUpdateSettings } from "@/features/settings/useSettings";
 import { sessionForProfile, useWorkspace } from "@/features/workspace/workspaceStore";
+import { useShortcutLabel, useShortcuts } from "@/features/settings/useShortcuts";
 import { useT } from "@/i18n";
+import { matchesShortcut } from "@/lib/shortcuts";
 import { fuzzyScore } from "@/lib/fuzzy";
 import { cn } from "@/lib/utils";
 
@@ -62,6 +68,8 @@ function useCommands(): Command[] {
     const settings = useSettings().data;
     const updateSettings = useUpdateSettings();
     const disconnect = useDisconnect();
+    const snippets = useSnippets().data;
+    const shortcut = useShortcutLabel();
 
     return useMemo(() => {
         const text = t.palette;
@@ -117,6 +125,14 @@ function useCommands(): Command[] {
                         run: () => useUiStore.getState().setProcessListSession(session.sessionId),
                     },
                     {
+                        id: `server:${profile.id}`,
+                        label: text.serverInfo(profile.name),
+                        group: "connections",
+                        icon: GaugeIcon,
+                        keywords: profile.group ?? undefined,
+                        run: () => useUiStore.getState().setServerInfoSession(session.sessionId),
+                    },
+                    {
                         id: `disconnect:${profile.id}`,
                         label: text.disconnect(profile.name),
                         group: "connections",
@@ -150,7 +166,7 @@ function useCommands(): Command[] {
                 label: t.history.open,
                 group: "actions",
                 icon: HistoryIcon,
-                hint: `${t.common.ctrl}+H`,
+                hint: shortcut("history"),
                 run: () =>
                     useUiStore.getState().setHistoryDialog({
                         profileId: activeTab?.profileId ?? null,
@@ -162,7 +178,7 @@ function useCommands(): Command[] {
                 label: text.settings,
                 group: "actions",
                 icon: SettingsIcon,
-                hint: `${t.common.ctrl}+,`,
+                hint: shortcut("settings"),
                 run: () => useUiStore.getState().setSettingsOpen(true),
             },
         );
@@ -173,7 +189,7 @@ function useCommands(): Command[] {
                 label: text.newQueryHere,
                 group: "actions",
                 icon: FileCode2Icon,
-                hint: `${t.common.ctrl}+T`,
+                hint: shortcut("newTab"),
                 run: () =>
                     useWorkspace
                         .getState()
@@ -185,14 +201,35 @@ function useCommands(): Command[] {
                         ),
             });
         }
+        commands.push({
+            id: "snippets",
+            label: t.snippets.paletteOpen,
+            group: "actions",
+            icon: BookmarkIcon,
+            hint: shortcut("snippets"),
+            run: () =>
+                useUiStore.getState().setSnippetsDialog({
+                    tabId: activeTab?.kind === "query" ? activeTab.id : null,
+                }),
+        });
         if (activeTab?.kind === "query") {
             const tabId = activeTab.id;
+            for (const snippet of snippets ?? []) {
+                commands.push({
+                    id: `snippet:${snippet.id}`,
+                    label: t.snippets.palette(snippet.name),
+                    group: "actions",
+                    icon: BookmarkIcon,
+                    keywords: snippet.sql.slice(0, 200),
+                    run: () => window.setTimeout(() => insertSnippet(tabId, snippet.sql), 0),
+                });
+            }
             commands.push({
                 id: "format-sql",
                 label: text.formatSql,
                 group: "actions",
                 icon: WandSparklesIcon,
-                hint: "Shift+Alt+F",
+                hint: shortcut("format"),
                 run: () => window.setTimeout(() => void formatQueryTab(tabId), 0),
             });
         }
@@ -209,7 +246,18 @@ function useCommands(): Command[] {
             }
         }
         return commands;
-    }, [t, queryClient, profiles, sessions, activeTab, settings, updateSettings, disconnect]);
+    }, [
+        t,
+        queryClient,
+        profiles,
+        sessions,
+        activeTab,
+        settings,
+        updateSettings,
+        disconnect,
+        snippets,
+        shortcut,
+    ]);
 }
 
 function rank(commands: Command[], query: string): { group: Group; items: Command[] }[] {
@@ -235,22 +283,18 @@ export function CommandPalette() {
     const t = useT();
     const open = useUiStore((state) => state.paletteOpen);
     const setOpen = useUiStore((state) => state.setPaletteOpen);
+    const paletteShortcut = useShortcuts().palette;
 
     useEffect(() => {
         const onKeyDown = (event: globalThis.KeyboardEvent) => {
-            if (
-                (event.ctrlKey || event.metaKey) &&
-                !event.altKey &&
-                !event.shiftKey &&
-                event.key.toLowerCase() === "k"
-            ) {
+            if (matchesShortcut(event, paletteShortcut)) {
                 event.preventDefault();
                 setOpen(!useUiStore.getState().paletteOpen);
             }
         };
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
-    }, [setOpen]);
+    }, [setOpen, paletteShortcut]);
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>

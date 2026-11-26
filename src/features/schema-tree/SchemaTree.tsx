@@ -207,6 +207,19 @@ function DatabaseNode({
             >
                 {t.schema.refresh}
             </ContextMenuItem>
+            {!postgres && (
+                <ContextMenuItem
+                    onSelect={() =>
+                        useUiStore.getState().setDumpRequest({
+                            sessionId: session.sessionId,
+                            database,
+                            schema: null,
+                        })
+                    }
+                >
+                    {t.dump.menu}
+                </ContextMenuItem>
+            )}
             <ContextMenuSeparator />
             <ContextMenuItem onSelect={() => void copyText(database, t.schema.name)}>
                 {t.schema.copyName}
@@ -379,6 +392,17 @@ function SchemaNode({
                 }
             >
                 {t.schema.refresh}
+            </ContextMenuItem>
+            <ContextMenuItem
+                onSelect={() =>
+                    useUiStore.getState().setDumpRequest({
+                        sessionId: session.sessionId,
+                        database,
+                        schema,
+                    })
+                }
+            >
+                {t.dump.menu}
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem onSelect={() => void copyText(schema, t.schema.name)}>

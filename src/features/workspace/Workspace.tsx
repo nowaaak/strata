@@ -1,10 +1,18 @@
-import { QueryTab } from "@/features/query-editor/QueryTab";
-import { TableTab } from "@/features/table-view/TableTab";
+import { lazy, Suspense } from "react";
 import { useT } from "@/i18n";
-import { DisconnectedTab } from "./DisconnectedTab";
 import { TabBar } from "./TabBar";
 import { WelcomePanel } from "./WelcomePanel";
 import { tabTitle, useWorkspace, type WorkspaceTab } from "./workspaceStore";
+
+const QueryTab = lazy(() =>
+    import("@/features/query-editor/QueryTab").then((module) => ({ default: module.QueryTab })),
+);
+const TableTab = lazy(() =>
+    import("@/features/table-view/TableTab").then((module) => ({ default: module.TableTab })),
+);
+const DisconnectedTab = lazy(() =>
+    import("./DisconnectedTab").then((module) => ({ default: module.DisconnectedTab })),
+);
 
 function TabContent({ tab }: { tab: WorkspaceTab }) {
     const connected = useWorkspace((state) =>
@@ -42,7 +50,9 @@ export function Workspace() {
                         hidden={tab.id !== activeTabId}
                         className="absolute inset-0"
                     >
-                        <TabContent tab={tab} />
+                        <Suspense fallback={null}>
+                            <TabContent tab={tab} />
+                        </Suspense>
                     </div>
                 ))}
             </div>

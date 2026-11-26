@@ -1,4 +1,6 @@
 import { useEffect } from "react";
+import { useShortcuts } from "@/features/settings/useShortcuts";
+import { matchesShortcut } from "@/lib/shortcuts";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { closeWorkspaceTab } from "@/features/connections/connect";
 import { ConnectionsSidebar } from "@/features/connections/ConnectionsSidebar";
@@ -28,13 +30,19 @@ function useBreadcrumb(): string[] {
 }
 
 function useGlobalShortcuts() {
+    const shortcuts = useShortcuts();
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
-            if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) {
+            if (matchesShortcut(event, shortcuts.snippets)) {
+                event.preventDefault();
+                const state = useWorkspace.getState();
+                const active = state.tabs.find((tab) => tab.id === state.activeTabId);
+                useUiStore
+                    .getState()
+                    .setSnippetsDialog({ tabId: active?.kind === "query" ? active.id : null });
                 return;
             }
-            const key = event.key.toLowerCase();
-            if (key === "h") {
+            if (matchesShortcut(event, shortcuts.history)) {
                 event.preventDefault();
                 const state = useWorkspace.getState();
                 const active = state.tabs.find((tab) => tab.id === state.activeTabId);
@@ -44,14 +52,14 @@ function useGlobalShortcuts() {
                 });
                 return;
             }
-            if (key === ",") {
+            if (matchesShortcut(event, shortcuts.settings)) {
                 event.preventDefault();
                 useUiStore.getState().setSettingsOpen(true);
                 return;
             }
             const state = useWorkspace.getState();
             const active = state.tabs.find((tab) => tab.id === state.activeTabId);
-            if (key === "t") {
+            if (matchesShortcut(event, shortcuts.newTab)) {
                 event.preventDefault();
                 const session = active?.sessionId ?? Object.keys(state.sessions)[0];
                 if (session) {
@@ -61,14 +69,14 @@ function useGlobalShortcuts() {
                             : (active?.target.database ?? null);
                     state.openQueryTab(session, database);
                 }
-            } else if (key === "w" && active) {
+            } else if (matchesShortcut(event, shortcuts.closeTab) && active) {
                 event.preventDefault();
                 closeWorkspaceTab(active.id);
             }
         };
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
-    }, []);
+    }, [shortcuts]);
 }
 
 export function AppLayout() {

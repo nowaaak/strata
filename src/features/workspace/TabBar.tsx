@@ -6,11 +6,13 @@ import { COLOR_CLASSES } from "@/features/connections/labels";
 import { useProfiles } from "@/features/connections/useProfiles";
 import { useRuns } from "@/features/result-grid/runStore";
 import { cn } from "@/lib/utils";
+import { useShortcutLabel } from "@/features/settings/useShortcuts";
 import { useT } from "@/i18n";
 import { tabTitle, useWorkspace } from "./workspaceStore";
 
 export function TabBar() {
     const t = useT();
+    const shortcut = useShortcutLabel();
     const tabs = useWorkspace((state) => state.tabs);
     const activeTabId = useWorkspace((state) => state.activeTabId);
     const runs = useRuns((state) => state.runs);
@@ -117,7 +119,7 @@ export function TabBar() {
                             <PlusIcon />
                         </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{t.app.tabs.newQueryHint}</TooltipContent>
+                    <TooltipContent>{`${t.app.tabs.newQueryHint} (${shortcut("newTab")})`}</TooltipContent>
                 </Tooltip>
             )}
         </div>

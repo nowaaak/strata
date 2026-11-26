@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS: Settings = {
     gridDensity: "normal",
     defaultRowLimit: 1_000,
     historyEnabled: true,
+    shortcuts: {},
 };
 
 export const THEMES: Theme[] = ["dark", "light", "system"];

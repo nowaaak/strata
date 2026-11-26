@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use strata_core::driver::Row;
+use strata_core::dump::{DumpOptions, DumpProgress, DumpSummary};
 use strata_core::export::{self, ExportFormat, ExportSource, ExportSummary};
 use strata_core::history::{HistoryStatus, NewHistoryEntry};
 use strata_core::schema::TableTarget;
@@ -183,4 +184,43 @@ pub fn cancel_export(
     let session = state.sessions.get(&session_id)?;
     session.cancel_export(&export_id);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn explain_query(
+    state: State<'_, AppState>,
+    session_id: String,
+    database: Option<String>,
+    sql: String,
+    analyze: bool,
+) -> CommandResult<String> {
+    let session = state.sessions.get(&session_id)?;
+    Ok(session.explain(database.as_deref(), &sql, analyze).await?)
+}
+
+#[tauri::command]
+pub async fn dump_database(
+    state: State<'_, AppState>,
+    session_id: String,
+    export_id: String,
+    options: DumpOptions,
+    path: PathBuf,
+    on_progress: Channel<DumpProgress>,
+) -> CommandResult<DumpSummary> {
+    let session = state.sessions.get(&session_id)?;
+    let progress = Box::new(move |update: DumpProgress| {
+        if let Err(err) = on_progress.send(update) {
+            tracing::debug!(error = %err, "dump progress could not be delivered");
+        }
+    });
+    let started = std::time::Instant::now();
+    let summary = session.dump(&export_id, &options, path, progress).await?;
+    tracing::info!(
+        tables = summary.tables,
+        rows = summary.rows,
+        cancelled = summary.cancelled,
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "dump finished"
+    );
+    Ok(summary)
 }

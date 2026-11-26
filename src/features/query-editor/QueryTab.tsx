@@ -3,6 +3,8 @@ import type { EditorView } from "@codemirror/view";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     DatabaseIcon,
+    BookmarkIcon,
+    GaugeIcon,
     HistoryIcon,
     ListChecksIcon,
     PlayIcon,
@@ -52,6 +54,7 @@ import { historyKey } from "@/api/history";
 import { registerEditor } from "./editorRegistry";
 import { formatQueryTab } from "./formatAction";
 import { clearError, showError, SqlEditor } from "./SqlEditor";
+import { useShortcutLabel } from "@/features/settings/useShortcuts";
 import { useT } from "@/i18n";
 import { statementAt } from "./statements";
 
@@ -73,6 +76,7 @@ type PendingRun = { sql: string; base: number; writes: SqlStatement[] };
 
 export function QueryTab({ tab }: { tab: Attached<QueryTabModel> }) {
     const t = useT();
+    const shortcut = useShortcutLabel();
     const queryClient = useQueryClient();
     const session = useWorkspace((state) => state.sessions[tab.sessionId]);
     const profile = useProfile(tab.profileId);
@@ -166,6 +170,37 @@ export function QueryTab({ tab }: { tab: Attached<QueryTabModel> }) {
         }
     };
 
+    const explain = async () => {
+        const view = viewRef.current;
+        if (!view || !session) {
+            return;
+        }
+        const doc = view.state.doc.toString();
+        const selection = view.state.selection.main;
+        try {
+            const source = selection.empty ? doc : doc.slice(selection.from, selection.to);
+            const statements = await splitSql(tab.sessionId, source);
+            const statement = selection.empty
+                ? statementAt(statements, selection.head)
+                : statements.length === 1
+                  ? statements[0]
+                  : null;
+            if (!statement) {
+                toast.info(t.explain.noStatement);
+                return;
+            }
+            useUiStore.getState().setExplainRequest({
+                sessionId: tab.sessionId,
+                database: tab.database,
+                sql: statement.text,
+                engine,
+                writes: statement.writes,
+            });
+        } catch (error) {
+            toast.error(t.explain.failed, { description: errorMessage(error) });
+        }
+    };
+
     const cancel = () => cancelRun(tab.sessionId, tab.id);
 
     return (
@@ -188,7 +223,7 @@ export function QueryTab({ tab }: { tab: Attached<QueryTabModel> }) {
                                 {t.query.run}
                             </Button>
                         </TooltipTrigger>
-                        <TooltipContent>{t.query.runHint}</TooltipContent>
+                        <TooltipContent>{`${t.query.runHint} (${shortcut("run")})`}</TooltipContent>
                     </Tooltip>
                 )}
                 <Tooltip>
@@ -203,7 +238,21 @@ export function QueryTab({ tab }: { tab: Attached<QueryTabModel> }) {
                             {t.query.all}
                         </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{t.query.allHint}</TooltipContent>
+                    <TooltipContent>{`${t.query.allHint} (${shortcut("runAll")})`}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={!session}
+                            onClick={() => void explain()}
+                        >
+                            <GaugeIcon />
+                            {t.explain.button}
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t.explain.buttonHint}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                     <TooltipTrigger asChild>
@@ -216,7 +265,7 @@ export function QueryTab({ tab }: { tab: Attached<QueryTabModel> }) {
                             {t.query.format}
                         </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{t.query.formatHint}</TooltipContent>
+                    <TooltipContent>{`${t.query.formatHint} (${shortcut("format")})`}</TooltipContent>
                 </Tooltip>
                 <div className="mx-1 h-5 w-px bg-border" />
                 <Select
@@ -256,7 +305,22 @@ export function QueryTab({ tab }: { tab: Attached<QueryTabModel> }) {
                             {t.history.title}
                         </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{t.history.openHint}</TooltipContent>
+                    <TooltipContent>{`${t.history.openHint} (${shortcut("history")})`}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                                useUiStore.getState().setSnippetsDialog({ tabId: tab.id })
+                            }
+                        >
+                            <BookmarkIcon />
+                            {t.snippets.button}
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{`${t.snippets.buttonHint} (${shortcut("snippets")})`}</TooltipContent>
                 </Tooltip>
                 {session?.readOnly && (
                     <span className="ml-auto flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">

@@ -27,7 +27,7 @@ export const de = {
     executedAt: "Ausgeführt",
     duration: "Dauer",
     open: "Historie öffnen",
-    openHint: "Abfrage-Historie (Strg+H)",
+    openHint: "Abfrage-Historie",
 };
 
 export const en: typeof de = {
@@ -57,5 +57,5 @@ export const en: typeof de = {
     executedAt: "Executed",
     duration: "Duration",
     open: "Open history",
-    openHint: "Query history (Ctrl+H)",
+    openHint: "Query history",
 };

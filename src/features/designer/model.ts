@@ -1,8 +1,11 @@
 import type { AlterOp } from "@/bindings/AlterOp";
 import type { ColumnDef } from "@/bindings/ColumnDef";
+import type { ColumnPosition } from "@/bindings/ColumnPosition";
 import type { ColumnDesign } from "@/bindings/ColumnDesign";
 import type { DefaultValue } from "@/bindings/DefaultValue";
 import type { Engine } from "@/bindings/Engine";
+import type { ForeignKeyDesign } from "@/bindings/ForeignKeyDesign";
+import type { ForeignKeyRule } from "@/bindings/ForeignKeyRule";
 import type { IndexDesign } from "@/bindings/IndexDesign";
 import type { NewTable } from "@/bindings/NewTable";
 import type { TableDesign } from "@/bindings/TableDesign";
@@ -13,6 +16,7 @@ export type DefaultMode = DefaultValue["kind"];
 export type ColumnRow = {
     key: string;
     original: ColumnDesign | null;
+    originalPrevious: string | null;
     name: string;
     dataType: string;
     nullable: boolean;
@@ -20,6 +24,7 @@ export type ColumnRow = {
     defaultValue: string;
     autoIncrement: boolean;
     primary: boolean;
+    comment: string;
     dropped: boolean;
 };
 
@@ -31,6 +36,26 @@ export type IndexRow = {
     unique: boolean;
     dropped: boolean;
 };
+
+export type ForeignKeyRow = {
+    key: string;
+    original: ForeignKeyDesign | null;
+    name: string;
+    columns: string[];
+    targetTable: string;
+    targetColumns: string[];
+    onDelete: ForeignKeyRule;
+    onUpdate: ForeignKeyRule;
+    dropped: boolean;
+};
+
+export const FOREIGN_KEY_RULES: ForeignKeyRule[] = [
+    "no_action",
+    "restrict",
+    "cascade",
+    "set_null",
+    "set_default",
+];
 
 export const TYPE_SUGGESTIONS: Record<Engine, string[]> = {
     mysql: [
@@ -84,9 +109,10 @@ export function rowKey(): string {
 
 export function columnRows(design: TableDesign): ColumnRow[] {
     const primary = new Set(design.indexes.find((index) => index.primary)?.columns ?? []);
-    return design.columns.map((column) => ({
+    return design.columns.map((column, index) => ({
         key: rowKey(),
         original: column,
+        originalPrevious: design.columns[index - 1]?.name ?? null,
         name: column.name,
         dataType: column.dataType,
         nullable: column.nullable,
@@ -94,8 +120,35 @@ export function columnRows(design: TableDesign): ColumnRow[] {
         defaultValue: "",
         autoIncrement: column.autoIncrement,
         primary: primary.has(column.name),
+        comment: column.comment ?? "",
         dropped: false,
     }));
+}
+
+export function foreignKeyRows(design: TableDesign): ForeignKeyRow[] {
+    return design.foreignKeys.map((key) => ({
+        key: rowKey(),
+        original: key,
+        name: key.name,
+        columns: key.columns,
+        targetTable: key.target.table,
+        targetColumns: key.targetColumns,
+        onDelete: key.onDelete,
+        onUpdate: key.onUpdate,
+        dropped: false,
+    }));
+}
+
+export function moveRow<T extends { key: string }>(rows: T[], key: string, delta: number): T[] {
+    const from = rows.findIndex((row) => row.key === key);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= rows.length) {
+        return rows;
+    }
+    const next = [...rows];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved!);
+    return next;
 }
 
 export function indexRows(design: TableDesign): IndexRow[] {
@@ -113,6 +166,7 @@ export function newColumn(engine: Engine): ColumnRow {
     return {
         key: rowKey(),
         original: null,
+        originalPrevious: null,
         name: "",
         dataType: engine === "postgres" ? "text" : "VARCHAR(255)",
         nullable: true,
@@ -120,6 +174,7 @@ export function newColumn(engine: Engine): ColumnRow {
         defaultValue: "",
         autoIncrement: false,
         primary: false,
+        comment: "",
         dropped: false,
     };
 }
@@ -151,13 +206,18 @@ function defaultValue(row: ColumnRow): DefaultValue {
 }
 
 function definition(row: ColumnRow): ColumnDef {
-    return {
+    const column: ColumnDef = {
         name: row.name.trim(),
         dataType: row.dataType.trim(),
         nullable: row.nullable,
         default: defaultValue(row),
         autoIncrement: row.autoIncrement,
     };
+    const comment = row.comment.trim();
+    if (comment !== (row.original?.comment ?? "")) {
+        column.comment = comment;
+    }
+    return column;
 }
 
 function normalizeType(value: string): string {
@@ -174,21 +234,89 @@ export function isChanged(row: ColumnRow): boolean {
         normalizeType(row.dataType) !== normalizeType(original.dataType) ||
         row.nullable !== original.nullable ||
         row.defaultMode !== "keep" ||
-        row.autoIncrement !== original.autoIncrement
+        row.autoIncrement !== original.autoIncrement ||
+        row.comment.trim() !== (original.comment ?? "")
     );
 }
 
-export function alterOps(columns: ColumnRow[], indexes: IndexRow[]): AlterOp[] {
+export function isMoved(rows: ColumnRow[], row: ColumnRow): boolean {
+    if (!row.original || row.dropped) {
+        return false;
+    }
+    const kept = rows.filter((candidate) => !candidate.dropped);
+    const previous = kept[kept.indexOf(row) - 1];
+    const previousName = previous ? (previous.original?.name ?? "") : null;
+    return previous?.original === null || previousName !== row.originalPrevious;
+}
+
+function primaryKeyOps(columns: ColumnRow[], indexes: IndexRow[]): AlterOp[] {
+    const original = indexes.find((index) => index.original?.primary)?.original ?? null;
+    const originalColumns = original?.columns ?? [];
+    const kept = columns.filter((row) => !row.dropped);
+    const stays = originalColumns
+        .map((name) => kept.find((row) => row.primary && row.original?.name === name))
+        .filter((row): row is ColumnRow => row !== undefined);
+    const added = kept.filter((row) => row.primary && !stays.includes(row));
+    const next = [...stays, ...added];
+    if (added.length === 0 && stays.length === originalColumns.length) {
+        return [];
+    }
     const ops: AlterOp[] = [];
+    if (original) {
+        ops.push({ op: "drop_index", name: original.name });
+    }
+    if (next.length > 0) {
+        ops.push({ op: "add_primary_key", columns: next.map((row) => row.name.trim()) });
+    }
+    return ops;
+}
+
+function position(kept: ColumnRow[], row: ColumnRow): ColumnPosition {
+    const previous = kept[kept.indexOf(row) - 1];
+    return previous ? { kind: "after", column: previous.name.trim() } : { kind: "first" };
+}
+
+export function alterOps(
+    columns: ColumnRow[],
+    indexes: IndexRow[],
+    foreignKeys: ForeignKeyRow[] = [],
+    reorder = false,
+): AlterOp[] {
+    const ops: AlterOp[] = [];
+    const kept = columns.filter((row) => !row.dropped);
+    for (const foreignKey of foreignKeys) {
+        if (foreignKey.original && foreignKey.dropped) {
+            ops.push({ op: "drop_foreign_key", name: foreignKey.original.name });
+        }
+    }
     for (const row of columns) {
         if (row.original && row.dropped) {
             ops.push({ op: "drop_column", name: row.original.name });
-        } else if (!row.original && !row.dropped) {
-            ops.push({ op: "add_column", column: definition(row) });
-        } else if (row.original && isChanged(row)) {
-            ops.push({ op: "change_column", name: row.original.name, column: definition(row) });
         }
     }
+    kept.forEach((row, index) => {
+        if (!row.original) {
+            const op: AlterOp = { op: "add_column", column: definition(row) };
+            if (reorder && kept.slice(index + 1).some((later) => later.original)) {
+                op.position = position(kept, row);
+            }
+            ops.push(op);
+            return;
+        }
+        const moved = reorder && isMoved(columns, row);
+        if (moved || isChanged(row)) {
+            const op: AlterOp = {
+                op: "change_column",
+                name: row.original.name,
+                column: definition(row),
+            };
+            if (moved) {
+                op.position = position(kept, row);
+            }
+            ops.push(op);
+        }
+    });
+    ops.push(...primaryKeyOps(columns, indexes));
     for (const index of indexes) {
         if (index.original && index.dropped) {
             ops.push({ op: "drop_index", name: index.original.name });
@@ -198,6 +326,19 @@ export function alterOps(columns: ColumnRow[], indexes: IndexRow[]): AlterOp[] {
                 name: index.name.trim(),
                 columns: index.columns,
                 unique: index.unique,
+            });
+        }
+    }
+    for (const foreignKey of foreignKeys) {
+        if (!foreignKey.original && !foreignKey.dropped) {
+            ops.push({
+                op: "add_foreign_key",
+                name: foreignKey.name.trim(),
+                columns: foreignKey.columns,
+                target_table: foreignKey.targetTable,
+                target_columns: foreignKey.targetColumns,
+                on_delete: foreignKey.onDelete,
+                on_update: foreignKey.onUpdate,
             });
         }
     }

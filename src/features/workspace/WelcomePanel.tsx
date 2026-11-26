@@ -3,18 +3,20 @@ import { useUiStore } from "@/app/uiStore";
 import { StrataLogo } from "@/components/brand/StrataLogo";
 import { Button } from "@/components/ui/button";
 import { useProfiles } from "@/features/connections/useProfiles";
+import { useShortcutLabel } from "@/features/settings/useShortcuts";
 import { useT } from "@/i18n";
 
 export function WelcomePanel() {
     const t = useT();
     const text = t.app.welcome;
-    const ctrl = t.common.ctrl;
+    const shortcut = useShortcutLabel();
+    const keys = (label: string) => label.split(/\+(?!$)/);
     const shortcuts = [
-        { keys: [ctrl, "K"], label: text.palette },
-        { keys: [ctrl, "Enter"], label: text.runCurrent },
-        { keys: [ctrl, "⇧", "Enter"], label: text.runAll },
-        { keys: [ctrl, "T"], label: text.newQuery },
-        { keys: [ctrl, ","], label: text.settings },
+        { keys: keys(shortcut("palette")), label: text.palette },
+        { keys: keys(shortcut("run")), label: text.runCurrent },
+        { keys: keys(shortcut("runAll")), label: text.runAll },
+        { keys: keys(shortcut("newTab")), label: text.newQuery },
+        { keys: keys(shortcut("settings")), label: text.settings },
     ];
     const profiles = useProfiles();
     const empty = profiles.data?.length === 0;

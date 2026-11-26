@@ -4,7 +4,7 @@ A fast, modern desktop client for MySQL, MariaDB and PostgreSQL. Built with Taur
 
 ## Features
 
-- Connection profiles in collapsible groups, with color tags, TLS and a safety level per connection: normal, confirm before writing, or read-only (enforced by Strata and by the server session)
+- Connection profiles in collapsible groups (drag and drop to move them), with color tags, TLS and a safety level per connection: normal, confirm before writing, or read-only (enforced by Strata and by the server session)
 - Passwords live in the Windows Credential Manager, or are asked for on every connect
 - SSH tunnel per connection with password or key file (with optional passphrase). The server key is confirmed on first use and a changed key blocks the connection
 - Schema tree with databases, PostgreSQL schemas, tables and views, plus functions, procedures, triggers, events (MySQL, MariaDB) and sequences (PostgreSQL). A click opens their DDL in a new query, and they can be deleted from the context menu
@@ -14,12 +14,19 @@ A fast, modern desktop client for MySQL, MariaDB and PostgreSQL. Built with Taur
 - Inline editing with insert and delete. Changes are previewed as SQL and saved in one transaction that rolls back unless every statement hits exactly one row
 - JSON in the cell editor: highlighted, formatted or compact, checked while typing. Numbers and strings are never rewritten, and a value stored compact is saved compact again
 - Process list per connection with auto refresh, cancel a running query or end a connection
-- Table designer: add, rename, retype and drop columns, change NULL, defaults and auto increment, add and drop indexes, or create a new table with its primary key. Everything is shown as SQL before it runs
+- Server variables and status values per connection, searchable, with changed PostgreSQL settings marked
+- Table designer: add, rename, retype, reorder (MySQL, MariaDB) and drop columns, change NULL, defaults, auto increment and comments, change the primary key, add and drop indexes and foreign keys, or create a new table with its primary key. Everything is shown as SQL before it runs
 - Create, rename, empty and delete databases, PostgreSQL schemas, tables and views from the schema tree. Every change shows the exact SQL first, deleting a database asks for its name, and a new table starts from a SQL template
 - Export to CSV and JSON, either the loaded rows or the complete result streamed straight to the file, with progress and cancel
 - CSV import into a table with column mapping, delimiter and encoding detection (UTF-8, Windows-1252), decimal comma conversion and one transaction for all rows
 - Foreign key navigation: right click a cell to open the referenced row
 - Command palette (Ctrl+K) for tables, connections and actions
+- Saved snippets (Ctrl+Shift+S), insertable from the palette into any query
+- Execution plans as a readable tree with warnings for full scans, filesorts and misestimates, plus ANALYZE on PostgreSQL
+- Find and replace in table data as reviewable pending changes
+- SQL dump of a database or schema with structure, data, routines and triggers, which loads again with Strata or the command line client
+- Plain language explanations for common database errors, independent of the server language
+- Configurable keyboard shortcuts in the settings
 - Searchable query history (Ctrl+H) and tabs with SQL drafts that survive a restart
 - Settings (Ctrl+,): theme, accent color, interface zoom, editor font size and line wrapping, grid row height, default row limit, German or English interface
 

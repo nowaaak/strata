@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     FileUpIcon,
+    ReplaceIcon,
     FilterIcon,
     Loader2Icon,
     LockIcon,
@@ -49,6 +50,7 @@ import {
 import { getT, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { CellDialog, type CellDialogState } from "./CellDialog";
+import { FindReplaceDialog } from "./FindReplaceDialog";
 import { StructureView } from "./StructureView";
 import {
     addRow,
@@ -81,6 +83,7 @@ export function TableTab({ tab }: { tab: Attached<TableTabModel> }) {
     const [review, setReview] = useState<string[] | null>(null);
     const [saving, setSaving] = useState(false);
     const [cellDialog, setCellDialog] = useState<CellDialogState | null>(null);
+    const [findOpen, setFindOpen] = useState(false);
 
     const info = useQuery({
         queryKey: ["table-info", tab.sessionId, tab.target],
@@ -342,6 +345,17 @@ export function TableTab({ tab }: { tab: Attached<TableTabModel> }) {
                                 {text.addRow}
                             </Button>
                         )}
+                        {!readOnlyReason && (
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={!editable || rowCount === 0}
+                                onClick={() => setFindOpen(true)}
+                            >
+                                <ReplaceIcon />
+                                {text.findReplace.button}
+                            </Button>
+                        )}
                         {dirty && (
                             <>
                                 <Button
@@ -498,6 +512,30 @@ export function TableTab({ tab }: { tab: Attached<TableTabModel> }) {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+            {result && (
+                <FindReplaceDialog
+                    open={findOpen}
+                    sessionId={tab.sessionId}
+                    tabId={tab.id}
+                    result={result.result}
+                    rowCount={rowCount}
+                    columns={columns}
+                    keyColumns={keyColumns}
+                    onClose={() => setFindOpen(false)}
+                    onApply={(replacements, rows) => {
+                        const loaded: EditContext = { ...context, original: (row) => rows[row] };
+                        setEdits((state) =>
+                            replacements.reduce(
+                                (next, entry) =>
+                                    editCell(next, loaded, entry.row, entry.col, entry.value),
+                                state,
+                            ),
+                        );
+                        setFindOpen(false);
+                        toast.info(getT().table.findReplace.applied(replacements.length));
+                    }}
+                />
+            )}
             <CellDialog
                 state={cellDialog}
                 onClose={() => setCellDialog(null)}

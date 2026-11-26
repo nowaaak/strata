@@ -2,9 +2,9 @@ import { de as n, en as nEn } from "../plural";
 
 export const de = {
     run: "Ausführen",
-    runHint: "Statement am Cursor oder Auswahl (Strg+Enter)",
+    runHint: "Statement am Cursor oder Auswahl",
     all: "Alles",
-    allHint: "Ganzes Skript ausführen (Strg+⇧+Enter)",
+    allHint: "Ganzes Skript ausführen",
     cancel: "Abbrechen",
     database: "Datenbank",
     noDatabase: "Keine Datenbank",
@@ -12,7 +12,7 @@ export const de = {
     confirmBadge: "Änderungen werden bestätigt",
     startFailed: "Abfrage konnte nicht gestartet werden",
     format: "Formatieren",
-    formatHint: "SQL formatieren, Auswahl oder alles (Umschalt+Alt+F)",
+    formatHint: "SQL formatieren, Auswahl oder alles",
     formatFailed: "SQL konnte nicht formatiert werden",
     cancelFailed: "Abbrechen fehlgeschlagen",
     confirmTitle: (name: string) => `Änderungen an „${name}“ ausführen?`,
@@ -21,8 +21,8 @@ export const de = {
     execute: "Ausführen",
     editorLabel: (title: string) => `SQL-Editor ${title}`,
     placeholder: "SQL eingeben …",
-    emptyHint:
-        "Strg+Enter führt das Statement am Cursor aus, Strg+⇧+Enter das ganze Skript, Strg+. bricht ab.",
+    emptyHint: (run: string, all: string, cancel: string) =>
+        `${run} führt das Statement am Cursor aus, ${all} das ganze Skript, ${cancel} bricht ab.`,
     status: {
         skipped: "Nicht ausgeführt",
         running: "Läuft…",
@@ -65,9 +65,9 @@ export const de = {
 
 export const en: typeof de = {
     run: "Run",
-    runHint: "Statement at cursor or selection (Ctrl+Enter)",
+    runHint: "Statement at cursor or selection",
     all: "All",
-    allHint: "Run whole script (Ctrl+Shift+Enter)",
+    allHint: "Run whole script",
     cancel: "Cancel",
     database: "Database",
     noDatabase: "No database",
@@ -75,7 +75,7 @@ export const en: typeof de = {
     confirmBadge: "Changes need confirmation",
     startFailed: "The query could not be started",
     format: "Format",
-    formatHint: "Format SQL, selection or everything (Shift+Alt+F)",
+    formatHint: "Format SQL, selection or everything",
     formatFailed: "The SQL could not be formatted",
     cancelFailed: "Cancelling failed",
     confirmTitle: (name: string) => `Run changes on “${name}”?`,
@@ -84,8 +84,8 @@ export const en: typeof de = {
     execute: "Run",
     editorLabel: (title: string) => `SQL editor ${title}`,
     placeholder: "Enter SQL …",
-    emptyHint:
-        "Ctrl+Enter runs the statement at the cursor, Ctrl+Shift+Enter the whole script, Ctrl+. cancels.",
+    emptyHint: (run: string, all: string, cancel: string) =>
+        `${run} runs the statement at the cursor, ${all} the whole script, ${cancel} cancels.`,
     status: {
         skipped: "Not run",
         running: "Running…",

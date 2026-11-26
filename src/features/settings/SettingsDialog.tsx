@@ -4,6 +4,7 @@ import {
     ClipboardCopyIcon,
     CodeIcon,
     InfoIcon,
+    KeyboardIcon,
     LanguagesIcon,
     Trash2Icon,
     MonitorIcon,
@@ -64,14 +65,16 @@ import {
     withOption,
     ZOOM_LEVELS,
 } from "./theme";
+import { ShortcutSettings } from "./ShortcutSettings";
 import { useSettings, useUpdateSettings } from "./useSettings";
 
-type Section = "appearance" | "editor" | "language" | "about";
+type Section = "appearance" | "editor" | "language" | "shortcuts" | "about";
 
 const SECTIONS: { section: Section; icon: LucideIcon }[] = [
     { section: "appearance", icon: PaletteIcon },
     { section: "editor", icon: CodeIcon },
     { section: "language", icon: LanguagesIcon },
+    { section: "shortcuts", icon: KeyboardIcon },
     { section: "about", icon: InfoIcon },
 ];
 
@@ -250,6 +253,12 @@ function SettingsBody() {
                     </>
                 )}
                 {section === "about" && <About />}
+                {section === "shortcuts" && (
+                    <ShortcutSettings
+                        settings={settings}
+                        onChange={(shortcuts) => change({ shortcuts })}
+                    />
+                )}
                 {section === "language" && (
                     <Field label={t.settings.language}>
                         <Segmented

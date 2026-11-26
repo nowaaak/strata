@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -10,6 +11,7 @@ use crate::{CoreError, CoreResult};
 pub const ZOOM_RANGE: std::ops::RangeInclusive<u16> = 70..=150;
 pub const EDITOR_FONT_RANGE: std::ops::RangeInclusive<u8> = 10..=24;
 pub const ROW_LIMIT_RANGE: std::ops::RangeInclusive<u32> = 1..=1_000_000;
+const MAX_SHORTCUTS: usize = 64;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -67,6 +69,7 @@ pub struct Settings {
     pub grid_density: GridDensity,
     pub default_row_limit: u32,
     pub history_enabled: bool,
+    pub shortcuts: BTreeMap<String, String>,
 }
 
 impl Default for Settings {
@@ -81,6 +84,7 @@ impl Default for Settings {
             grid_density: GridDensity::default(),
             default_row_limit: 1_000,
             history_enabled: true,
+            shortcuts: BTreeMap::new(),
         }
     }
 }
@@ -108,6 +112,15 @@ impl Settings {
                 ROW_LIMIT_RANGE.end()
             )));
         }
+        if self.shortcuts.len() > MAX_SHORTCUTS
+            || self.shortcuts.iter().any(|(action, keys)| {
+                action.is_empty() || action.len() > 40 || keys.is_empty() || keys.len() > 40
+            })
+        {
+            return Err(CoreError::InvalidInput(
+                "a shortcut needs an action and keys of at most 40 characters".into(),
+            ));
+        }
         Ok(())
     }
 
@@ -121,6 +134,12 @@ impl Settings {
         }
         if !ROW_LIMIT_RANGE.contains(&self.default_row_limit) {
             self.default_row_limit = defaults.default_row_limit;
+        }
+        self.shortcuts.retain(|action, keys| {
+            !action.is_empty() && action.len() <= 40 && !keys.is_empty() && keys.len() <= 40
+        });
+        if self.shortcuts.len() > MAX_SHORTCUTS {
+            self.shortcuts.clear();
         }
         self
     }
@@ -185,6 +204,7 @@ mod tests {
             grid_density: GridDensity::Compact,
             default_row_limit: 10_000,
             history_enabled: false,
+            shortcuts: BTreeMap::from([("run".to_string(), "Mod+R".to_string())]),
         };
         store.replace(changed.clone()).await.unwrap();
 

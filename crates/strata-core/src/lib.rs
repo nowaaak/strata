@@ -1,5 +1,6 @@
 pub mod design;
 pub mod driver;
+pub mod dump;
 pub mod error;
 pub mod export;
 mod fsutil;
@@ -11,8 +12,10 @@ pub mod result;
 pub mod routines;
 pub mod schema;
 pub mod secrets;
+pub mod server;
 pub mod session;
 pub mod settings;
+pub mod snippets;
 pub mod sql;
 pub mod ssh;
 pub mod workspace;

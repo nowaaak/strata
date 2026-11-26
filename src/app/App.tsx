@@ -1,21 +1,63 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { lazy, useEffect } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConnectionDialog } from "@/features/connections/ConnectionDialog";
 import { HostKeyDialog } from "@/features/connections/HostKeyDialog";
-import { StructureDialog } from "@/features/structure/StructureDialog";
-import { ProcessDialog } from "@/features/processes/ProcessDialog";
-import { TableDesigner } from "@/features/designer/TableDesigner";
-import { ImportDialog } from "@/features/importer/ImportDialog";
 import { PasswordDialog } from "@/features/connections/PasswordDialog";
 import { CommandPalette } from "@/features/palette/CommandPalette";
-import { HistoryDialog } from "@/features/history/HistoryDialog";
-import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { useApplySettings, useResolvedTheme } from "@/features/settings/useThemeSync";
 import { useWorkspaceStartup } from "@/features/workspace/persistence";
 import { AppLayout } from "./AppLayout";
 import { installBrowserGuards } from "./browserGuards";
+import { OnDemand } from "./OnDemand";
+
+const StructureDialog = lazy(() =>
+    import("@/features/structure/StructureDialog").then((module) => ({
+        default: module.StructureDialog,
+    })),
+);
+const ProcessDialog = lazy(() =>
+    import("@/features/processes/ProcessDialog").then((module) => ({
+        default: module.ProcessDialog,
+    })),
+);
+const TableDesigner = lazy(() =>
+    import("@/features/designer/TableDesigner").then((module) => ({
+        default: module.TableDesigner,
+    })),
+);
+const ImportDialog = lazy(() =>
+    import("@/features/importer/ImportDialog").then((module) => ({ default: module.ImportDialog })),
+);
+const SnippetsDialog = lazy(() =>
+    import("@/features/snippets/SnippetsDialog").then((module) => ({
+        default: module.SnippetsDialog,
+    })),
+);
+const ExplainDialog = lazy(() =>
+    import("@/features/explain/ExplainDialog").then((module) => ({
+        default: module.ExplainDialog,
+    })),
+);
+const ServerInfoDialog = lazy(() =>
+    import("@/features/server/ServerInfoDialog").then((module) => ({
+        default: module.ServerInfoDialog,
+    })),
+);
+const DumpDialog = lazy(() =>
+    import("@/features/dump/DumpDialog").then((module) => ({ default: module.DumpDialog })),
+);
+const SettingsDialog = lazy(() =>
+    import("@/features/settings/SettingsDialog").then((module) => ({
+        default: module.SettingsDialog,
+    })),
+);
+const HistoryDialog = lazy(() =>
+    import("@/features/history/HistoryDialog").then((module) => ({
+        default: module.HistoryDialog,
+    })),
+);
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -48,13 +90,37 @@ function AppShell() {
             <ConnectionDialog />
             <PasswordDialog />
             <HostKeyDialog />
-            <StructureDialog />
-            <ProcessDialog />
-            <TableDesigner />
-            <ImportDialog />
+            <OnDemand when={(ui) => ui.structureRequest !== null}>
+                <StructureDialog />
+            </OnDemand>
+            <OnDemand when={(ui) => ui.processListSession !== null}>
+                <ProcessDialog />
+            </OnDemand>
+            <OnDemand when={(ui) => ui.designerRequest !== null}>
+                <TableDesigner />
+            </OnDemand>
+            <OnDemand when={(ui) => ui.importRequest !== null}>
+                <ImportDialog />
+            </OnDemand>
+            <OnDemand when={(ui) => ui.snippetsDialog !== null}>
+                <SnippetsDialog />
+            </OnDemand>
+            <OnDemand when={(ui) => ui.explainRequest !== null}>
+                <ExplainDialog />
+            </OnDemand>
+            <OnDemand when={(ui) => ui.serverInfoSession !== null}>
+                <ServerInfoDialog />
+            </OnDemand>
+            <OnDemand when={(ui) => ui.dumpRequest !== null}>
+                <DumpDialog />
+            </OnDemand>
             <CommandPalette />
-            <SettingsDialog />
-            <HistoryDialog />
+            <OnDemand when={(ui) => ui.settingsOpen}>
+                <SettingsDialog />
+            </OnDemand>
+            <OnDemand when={(ui) => ui.historyDialog !== null}>
+                <HistoryDialog />
+            </OnDemand>
             <Toaster theme={theme} position="bottom-right" />
         </>
     );

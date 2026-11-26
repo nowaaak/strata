@@ -7,7 +7,9 @@ import {
     XCircleIcon,
 } from "lucide-react";
 import { useState } from "react";
+import { dbHint } from "@/api/errors";
 import { Button } from "@/components/ui/button";
+import { useShortcutLabel } from "@/features/settings/useShortcuts";
 import { useT, type Messages } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { DataGrid } from "./DataGrid";
@@ -82,14 +84,26 @@ function Messages({ run }: { run: RunState }) {
                         )}
                     </div>
                     {statement.message && (
-                        <pre className="ml-5.5 font-mono text-[12px] whitespace-pre-wrap text-destructive select-text">
-                            {statement.message}
-                        </pre>
+                        <>
+                            <ErrorHint message={statement.message} className="ml-5.5" />
+                            <pre className="ml-5.5 font-mono text-[12px] whitespace-pre-wrap text-destructive select-text">
+                                {statement.message}
+                            </pre>
+                        </>
                     )}
                 </li>
             ))}
         </ol>
     );
+}
+
+function ErrorHint({ message, className }: { message: string; className?: string }) {
+    useT();
+    const hint = dbHint(message);
+    if (!hint) {
+        return null;
+    }
+    return <p className={cn("text-[12.5px] text-foreground/85", className)}>{hint}</p>;
 }
 
 export function RunStatus({ run, onCancel }: { run: RunState; onCancel: () => void }) {
@@ -140,6 +154,7 @@ export function ResultPanel({
     database?: string | null;
 }) {
     const t = useT();
+    const shortcut = useShortcutLabel();
     const run = useRuns((state) => state.runs[tabId]);
     const [messagesRunId, setMessagesRunId] = useState<number | null>(null);
     const result = run?.results.find((info) => info.result === run.selected);
@@ -148,7 +163,7 @@ export function ResultPanel({
     if (!run) {
         return (
             <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
-                <p>{t.query.emptyHint}</p>
+                <p>{t.query.emptyHint(shortcut("run"), shortcut("runAll"), shortcut("cancel"))}</p>
             </div>
         );
     }
@@ -182,9 +197,12 @@ export function ResultPanel({
                     className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-[12.5px] text-destructive"
                 >
                     <XCircleIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
-                    <pre className="font-mono whitespace-pre-wrap select-text">
-                        {failed.message}
-                    </pre>
+                    <div className="flex min-w-0 flex-col gap-1">
+                        <ErrorHint message={failed.message} />
+                        <pre className="font-mono whitespace-pre-wrap select-text">
+                            {failed.message}
+                        </pre>
+                    </div>
                 </div>
             )}
             {(run.results.length > 1 || run.statements.length > 1) && (

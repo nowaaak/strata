@@ -11,13 +11,15 @@ use crate::driver::{
     CancelHandle, ColumnMeta, ConnectParams, Connection, DbError, Row, RowSink, ServerDetails,
     SinkFlow,
 };
+use crate::dump::{self, DumpOptions, DumpProgress, DumpSummary, InsertWriter, RoutineDump};
 use crate::export::{ExportFormat, ExportSource, ExportSummary, StreamWriter};
 use crate::import::{self, CsvImport, ImportSummary};
 use crate::processes::{self, KillMode, ProcessInfo};
 use crate::profiles::{ConnectionProfile, Engine, PasswordUpdate, ProfileStore, Safety};
 use crate::result::ResultSet;
-use crate::routines::{self, DdlQuery, Routine, RoutineTarget};
+use crate::routines::{self, DdlQuery, Routine, RoutineKind, RoutineTarget};
 use crate::schema::{self, CompletionTable, DbObject, TableInfo, TableTarget};
+use crate::server::{self, ServerInfoKind, ServerSetting};
 use crate::sql::{
     DdlAction, Dialect, RowChange, SqlStatement, TableQuery, change_statement, ddl_statement,
     select_statement, split_statements,
@@ -458,9 +460,13 @@ impl Session {
         let indexes = self
             .meta_rows(database, &design::indexes_sql(self.dialect, target))
             .await?;
+        let foreign_keys = self
+            .meta_rows(database, &design::foreign_keys_sql(self.dialect, target))
+            .await?;
         Ok(TableDesign {
             columns: design::parse_columns(self.dialect, columns),
             indexes: design::parse_indexes(indexes),
+            foreign_keys: design::parse_foreign_keys(foreign_keys),
         })
     }
 
@@ -732,6 +738,452 @@ impl Session {
         outcome
     }
 
+    pub async fn explain(
+        &self,
+        database: Option<&str>,
+        sql: &str,
+        analyze: bool,
+    ) -> CoreResult<String> {
+        let statements = split_statements(sql, self.dialect);
+        let [statement] = statements.as_slice() else {
+            return Err(CoreError::InvalidInput(
+                "explain needs exactly one statement".into(),
+            ));
+        };
+        if analyze && (self.dialect.is_mysql() || statement.writes) {
+            return Err(CoreError::InvalidInput(
+                "ANALYZE runs the statement, it is only offered for reading statements on PostgreSQL"
+                    .into(),
+            ));
+        }
+        let text = statement.text.trim().trim_end_matches(';');
+        let explain = match (self.dialect, analyze) {
+            (Dialect::MySql { .. }, _) => format!("EXPLAIN FORMAT=JSON {text}"),
+            (Dialect::Postgres { .. }, false) => format!("EXPLAIN (FORMAT JSON) {text}"),
+            (Dialect::Postgres { .. }, true) => {
+                format!("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {text}")
+            }
+        };
+        let wanted = database
+            .map(str::to_string)
+            .or_else(|| self.details.database.clone());
+        let mut conn = Connection::connect(&self.params(wanted)).await?;
+        let outcome = async {
+            if self.dialect.is_mysql()
+                && let Some(database) = database
+            {
+                conn.use_database(database).await?;
+            }
+            let rows = conn.query_rows(&explain).await?;
+            Ok::<_, crate::driver::DbError>(rows)
+        }
+        .await;
+        conn.close().await;
+        let rows = outcome?;
+        rows.into_iter()
+            .next()
+            .and_then(|row| row.into_iter().next().flatten())
+            .ok_or_else(|| CoreError::Database("the server returned no plan".into()))
+    }
+
+    async fn dump_table_ddl(&self, target: &TableTarget) -> CoreResult<(String, Vec<String>)> {
+        if self.dialect.is_mysql() {
+            return Ok((self.table_ddl(target).await?, Vec::new()));
+        }
+        let database = Some(target.database.as_str());
+        let info = self.describe_table(target).await?;
+        let constraints = self
+            .meta_rows(database, &schema::pg_constraints_sql(self.dialect, target))
+            .await?;
+        let indexes = self
+            .meta_rows(database, &schema::pg_indexes_sql(self.dialect, target))
+            .await?;
+        let table = target.qualified(self.dialect);
+        let (foreign, local): (Vec<Row>, Vec<Row>) = constraints.into_iter().partition(|row| {
+            row.get(1)
+                .cloned()
+                .flatten()
+                .is_some_and(|definition| definition.starts_with("FOREIGN KEY"))
+        });
+        let deferred = foreign
+            .into_iter()
+            .filter_map(|row| {
+                let name = row.first().cloned().flatten()?;
+                let definition = row.get(1).cloned().flatten()?;
+                Some(format!(
+                    "ALTER TABLE {table} ADD CONSTRAINT {} {definition};",
+                    self.dialect.quote_ident(&name)
+                ))
+            })
+            .collect();
+        let mut ddl = String::new();
+        let mut owned = Vec::new();
+        for column in &info.columns {
+            if let Some(sequence) = column.default.as_deref().and_then(dump::serial_sequence) {
+                ddl.push_str(&format!("CREATE SEQUENCE IF NOT EXISTS {sequence};\n"));
+                owned.push(format!(
+                    "ALTER SEQUENCE {sequence} OWNED BY {table}.{};",
+                    self.dialect.quote_ident(&column.name)
+                ));
+            }
+        }
+        ddl.push_str(&schema::pg_table_ddl(
+            self.dialect,
+            target,
+            &info.columns,
+            local,
+            indexes,
+        ));
+        for statement in owned {
+            ddl.push_str(&format!("\n{statement}"));
+        }
+        Ok((ddl, deferred))
+    }
+
+    async fn sequence_fixes(&self, target: &TableTarget) -> CoreResult<Vec<String>> {
+        if self.dialect.is_mysql() {
+            return Ok(Vec::new());
+        }
+        let info = self.describe_table(target).await?;
+        let table = target.qualified(self.dialect);
+        Ok(info
+            .columns
+            .iter()
+            .filter(|column| {
+                column
+                    .default
+                    .as_deref()
+                    .is_some_and(|default| default.contains("nextval("))
+                    || column
+                        .extra
+                        .as_deref()
+                        .is_some_and(|extra| extra.contains("IDENTITY"))
+            })
+            .map(|column| {
+                let name = self.dialect.quote_ident(&column.name);
+                format!(
+                    "SELECT setval(pg_get_serial_sequence({}, {}), COALESCE((SELECT MAX({name}) FROM {table}), 1), (SELECT MAX({name}) FROM {table}) IS NOT NULL);",
+                    self.dialect.quote_literal(&table),
+                    self.dialect.quote_literal(&column.name)
+                )
+            })
+            .collect())
+    }
+
+    async fn dump_routines(
+        &self,
+        options: &DumpOptions,
+        schema_name: Option<&str>,
+        selected: &[DbObject],
+    ) -> CoreResult<(String, String)> {
+        let routines = self.list_routines(&options.database, schema_name).await?;
+        let mysql = self.dialect.is_mysql();
+        let mut programs = Vec::new();
+        let mut triggers = Vec::new();
+        for routine in routines {
+            let keep = match routine.kind {
+                RoutineKind::Function | RoutineKind::Procedure => true,
+                RoutineKind::Event => mysql,
+                RoutineKind::Trigger => routine
+                    .table
+                    .as_deref()
+                    .is_some_and(|table| selected.iter().any(|object| object.name == table)),
+                RoutineKind::Sequence => false,
+            };
+            if !keep {
+                continue;
+            }
+            let target = RoutineTarget {
+                database: options.database.clone(),
+                schema: schema_name.map(str::to_string),
+                routine,
+            };
+            let ddl = self.routine_ddl(&target).await?;
+            let routine = target.routine;
+            let drop = options.drop_existing.then(|| {
+                let word = match routine.kind {
+                    RoutineKind::Function => "FUNCTION",
+                    RoutineKind::Procedure => "PROCEDURE",
+                    RoutineKind::Event => "EVENT",
+                    _ => "TRIGGER",
+                };
+                let name = self.dialect.quote_ident(&routine.name);
+                match (mysql, routine.kind, routine.table.as_deref()) {
+                    (true, _, _) => Some(format!("DROP {word} IF EXISTS {name}")),
+                    (false, RoutineKind::Trigger, Some(table)) => Some(format!(
+                        "DROP TRIGGER IF EXISTS {name} ON {}",
+                        self.dialect
+                            .qualified(&[schema_name.unwrap_or("public"), table])
+                    )),
+                    _ => None,
+                }
+            });
+            let entry = RoutineDump {
+                name: match routine.arguments.as_deref() {
+                    Some(arguments) => format!("{}({arguments})", routine.name),
+                    None => routine.name.clone(),
+                },
+                drop: drop.flatten(),
+                ddl: if mysql {
+                    dump::strip_definer(&ddl)
+                } else {
+                    ddl
+                },
+            };
+            if routine.kind == RoutineKind::Trigger {
+                triggers.push(entry);
+            } else {
+                programs.push(entry);
+            }
+        }
+        Ok((
+            dump::routine_block(self.dialect, "Routines", &programs),
+            dump::routine_block(self.dialect, "Triggers", &triggers),
+        ))
+    }
+
+    pub async fn dump(
+        &self,
+        export_id: &str,
+        options: &DumpOptions,
+        path: std::path::PathBuf,
+        progress: Box<dyn Fn(DumpProgress) + Send + Sync>,
+    ) -> CoreResult<DumpSummary> {
+        if !options.structure && !options.data {
+            return Err(CoreError::InvalidInput(
+                "choose structure, data or both".into(),
+            ));
+        }
+        let schema_name = (!self.dialect.is_mysql())
+            .then(|| options.schema.clone().unwrap_or_else(|| "public".into()));
+        let objects = self
+            .list_objects(&options.database, schema_name.as_deref())
+            .await?;
+        let selected: Vec<_> = objects
+            .into_iter()
+            .filter(|object| options.tables.is_empty() || options.tables.contains(&object.name))
+            .collect();
+        if selected.is_empty() {
+            return Err(CoreError::InvalidInput("there is nothing to dump".into()));
+        }
+        let target_of = |name: &str| TableTarget {
+            database: options.database.clone(),
+            schema: schema_name.clone(),
+            table: name.to_string(),
+        };
+        let insert_name = |target: &TableTarget| {
+            if self.dialect.is_mysql() {
+                self.dialect.quote_ident(&target.table)
+            } else {
+                target.qualified(self.dialect)
+            }
+        };
+        let (programs, triggers) = if options.structure && options.routines {
+            self.dump_routines(options, schema_name.as_deref(), &selected)
+                .await?
+        } else {
+            (String::new(), String::new())
+        };
+
+        let temp = {
+            let mut temp = path.as_os_str().to_owned();
+            temp.push(".tmp");
+            std::path::PathBuf::from(temp)
+        };
+        let file = std::fs::File::create(&temp).map_err(|err| CoreError::io(&temp, err))?;
+        let mut out = std::io::BufWriter::with_capacity(1 << 20, file);
+        let cancel = Arc::new(AtomicBool::new(false));
+        lock(&self.exports).insert(export_id.to_string(), cancel.clone());
+
+        let mut conn = match Connection::connect(&self.params(Some(options.database.clone()))).await
+        {
+            Ok(conn) => conn,
+            Err(err) => {
+                lock(&self.exports).remove(export_id);
+                drop(out);
+                if let Err(remove) = std::fs::remove_file(&temp) {
+                    tracing::debug!(error = %remove, "temporary dump file could not be removed");
+                }
+                return Err(err.into());
+            }
+        };
+        let server = format!("{} {}", self.details.flavor, self.details.version);
+        let total = u32::try_from(selected.len()).unwrap_or(u32::MAX);
+        let outcome: CoreResult<(u32, u64, bool)> = async {
+            let io = |err: std::io::Error| CoreError::io(&temp, err);
+            use std::io::Write as _;
+            out.write_all(
+                dump::header(
+                    self.dialect,
+                    &options.database,
+                    &server,
+                    schema_name.as_deref(),
+                )
+                .as_bytes(),
+            )
+            .map_err(io)?;
+            let mut deferred = Vec::new();
+            let mut rows = 0u64;
+            let mut done = 0u32;
+            let (tables, views): (Vec<_>, Vec<_>) = selected
+                .iter()
+                .partition(|object| object.kind == schema::ObjectKind::Table);
+            let mut programs_pending = !programs.is_empty();
+            if programs_pending && !self.dialect.is_mysql() {
+                out.write_all(programs.as_bytes()).map_err(io)?;
+                programs_pending = false;
+            }
+            for object in tables.iter().chain(views.iter()) {
+                if cancel.load(Ordering::SeqCst) {
+                    return Ok((done, rows, true));
+                }
+                let target = target_of(&object.name);
+                let is_view = object.kind == schema::ObjectKind::View;
+                if programs_pending && is_view {
+                    out.write_all(programs.as_bytes()).map_err(io)?;
+                    programs_pending = false;
+                }
+                progress(DumpProgress {
+                    table: object.name.clone(),
+                    done,
+                    total,
+                    rows,
+                });
+                let name = insert_name(&target);
+                if options.structure {
+                    let mut block = format!(
+                        "
+-- {}
+",
+                        object.name
+                    );
+                    if options.drop_existing {
+                        let kind = if is_view { "VIEW" } else { "TABLE" };
+                        let cascade = if self.dialect.is_mysql() {
+                            ""
+                        } else {
+                            " CASCADE"
+                        };
+                        block.push_str(&format!(
+                            "DROP {kind} IF EXISTS {name}{cascade};
+"
+                        ));
+                    }
+                    let (ddl, foreign) = if self.dialect.is_mysql() {
+                        let rows = conn
+                            .query_rows(&format!(
+                                "SHOW CREATE TABLE {}",
+                                self.dialect.quote_ident(&object.name)
+                            ))
+                            .await?;
+                        let ddl = rows
+                            .into_iter()
+                            .next()
+                            .and_then(|row| row.into_iter().nth(1).flatten())
+                            .ok_or_else(|| {
+                                CoreError::NotFound(format!("no DDL for {}", object.name))
+                            })?;
+                        (dump::strip_definer(&ddl), Vec::new())
+                    } else if is_view {
+                        (self.table_ddl(&target).await?, Vec::new())
+                    } else {
+                        self.dump_table_ddl(&target).await?
+                    };
+                    block.push_str(ddl.trim_end().trim_end_matches(';'));
+                    block.push_str(
+                        ";
+",
+                    );
+                    deferred.extend(foreign);
+                    out.write_all(block.as_bytes()).map_err(io)?;
+                }
+                if options.data && !is_view {
+                    let select = format!("SELECT * FROM {}", target.qualified(self.dialect));
+                    let report = |count: u64| {
+                        progress(DumpProgress {
+                            table: object.name.clone(),
+                            done,
+                            total,
+                            rows: rows + count,
+                        })
+                    };
+                    let mut writer = InsertWriter::new(
+                        self.dialect,
+                        name.clone(),
+                        &mut out,
+                        cancel.clone(),
+                        &report,
+                    );
+                    let run = conn.run(&select, &mut writer).await;
+                    let (count, failure) = writer.finish();
+                    if let Some(err) = failure {
+                        return Err(io(err));
+                    }
+                    if cancel.load(Ordering::SeqCst) {
+                        return Ok((done, rows + count, true));
+                    }
+                    run?;
+                    rows += count;
+                    if count > 0 {
+                        for fix in self.sequence_fixes(&target).await? {
+                            out.write_all(
+                                format!(
+                                    "{fix}
+"
+                                )
+                                .as_bytes(),
+                            )
+                            .map_err(io)?;
+                        }
+                    }
+                }
+                done += 1;
+            }
+            if programs_pending {
+                out.write_all(programs.as_bytes()).map_err(io)?;
+            }
+            out.write_all(triggers.as_bytes()).map_err(io)?;
+            out.write_all(dump::footer(self.dialect, &deferred).as_bytes())
+                .map_err(io)?;
+            Ok((done, rows, false))
+        }
+        .await;
+        lock(&self.exports).remove(export_id);
+        conn.close().await;
+
+        let finished = outcome.and_then(|(tables, rows, cancelled)| {
+            use std::io::Write as _;
+            if cancelled {
+                return Ok(DumpSummary {
+                    tables,
+                    rows,
+                    cancelled,
+                });
+            }
+            out.flush()
+                .and_then(|()| out.get_ref().sync_all())
+                .map_err(|err| CoreError::io(&temp, err))?;
+            Ok(DumpSummary {
+                tables,
+                rows,
+                cancelled,
+            })
+        });
+        drop(out);
+        match finished {
+            Ok(summary) if !summary.cancelled => {
+                std::fs::rename(&temp, &path).map_err(|err| CoreError::io(&path, err))?;
+                Ok(summary)
+            }
+            other => {
+                if let Err(err) = std::fs::remove_file(&temp) {
+                    tracing::debug!(error = %err, "temporary dump file could not be removed");
+                }
+                other
+            }
+        }
+    }
+
     pub fn cancel_export(&self, export_id: &str) {
         if let Some(flag) = lock(&self.exports).get(export_id) {
             flag.store(true, Ordering::SeqCst);
@@ -743,6 +1195,13 @@ impl Session {
             .meta_rows(None, processes::processes_sql(self.dialect))
             .await?;
         Ok(processes::parse_processes(self.dialect, rows))
+    }
+
+    pub async fn server_info(&self, kind: ServerInfoKind) -> CoreResult<Vec<ServerSetting>> {
+        let rows = self
+            .meta_rows(None, server::server_info_sql(self.dialect, kind))
+            .await?;
+        Ok(server::parse_server_info(rows))
     }
 
     pub async fn kill_process(&self, id: &str, mode: KillMode) -> CoreResult<()> {

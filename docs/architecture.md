@@ -74,6 +74,10 @@ MySQL and MariaDB need the complete column definition in `CHANGE COLUMN`. Anythi
 
 On PostgreSQL only what changed is emitted (rename, `TYPE ... USING col::type`, `SET`/`DROP NOT NULL`, `SET`/`DROP DEFAULT`, identity) and all statements run in one transaction on the metadata connection, so a failing step changes nothing. Indexes backed by a constraint are dropped with `DROP CONSTRAINT`.
 
+The primary key is set with the PK column. When its columns change, the old key is dropped and `ADD PRIMARY KEY` follows, and the primary index can no longer be deleted from the index list, so both ways cannot collide. Renaming a key column alone keeps the key. Comments go inline on MySQL and as `COMMENT ON COLUMN` on PostgreSQL. An empty comment removes it. Foreign keys are listed with their `ON DELETE` and `ON UPDATE` rules, dropped first and added last, and always point to a table in the same database or schema.
+
+Only MySQL and MariaDB can reorder columns. The frontend sends the column operations in the new order and gives a column a position (`FIRST` or `AFTER`) when its predecessor differs from the original one, also when the original predecessor is dropped. Both servers apply the clauses of one `ALTER TABLE` in order and resolve `AFTER` against the names after renames and against columns added by an earlier clause, so the result is the order shown in the designer. Each placed column stays next to its predecessor, because a later move only inserts a column after its own predecessor.
+
 Data types and default expressions are SQL fragments by design. They are rejected when they contain `;` or comment markers. Generated columns can only be dropped, and expression or partial indexes only deleted. Every change is written to the query history.
 
 ## Routines, triggers, events and sequences
@@ -91,6 +95,30 @@ A full export runs the statement again on its own connection and streams every r
 ## CSV import
 
 `import.rs` reads the file, strips a UTF-8 BOM and falls back to Windows-1252 when the bytes are not valid UTF-8, which is what Excel writes on German Windows. The delimiter is detected from the first lines outside quotes. The parser follows RFC 4180 (quotes, doubled quotes, line breaks inside fields). Rows are inserted in batches of 500 as literal values quoted for the session dialect, all inside one transaction on a separate connection. If a batch fails, everything is rolled back and the error names the row range. Empty fields can become NULL, and in number columns a decimal comma (`1.234,5`) can be converted. The conversion only touches values that contain a comma, so `1.5` stays `1.5`.
+
+## SQL dump
+
+`Session::dump` writes the selected tables and views of a database (MySQL, MariaDB) or schema (PostgreSQL) into one SQL file, streamed through a temporary file and renamed at the end, with progress and cancel like the full export. Data is written as batched `INSERT` statements with literals quoted for the dialect. MySQL binary values are written as hex literals.
+
+On MySQL the DDL comes from `SHOW CREATE TABLE` on a connection whose current database is the dumped one, because MySQL then leaves out the database name. Otherwise view definitions would point back to the source database. The `DEFINER` clause is removed so the file loads as another user. Foreign key checks are switched off while loading.
+
+On PostgreSQL the table DDL is built like the DDL tab, but foreign keys are written as `ALTER TABLE ... ADD CONSTRAINT` at the end of the file, so the table order does not matter. Sequences of `serial` columns are created before their table and attached with `OWNED BY`, and after the data every serial or identity sequence is set to the highest value, so new rows continue after the restored ones. On PostgreSQL the file starts with `SET check_function_bodies = false` and the functions and procedures of the schema follow right after the header, so table defaults and views can use them and SQL functions may reference tables that come later. On MySQL routines and events come after the tables and before the views, inside a `DELIMITER ;;` block, because views check the functions they call. Triggers of the selected tables are written after all data, so restoring does not fire them. With "drop existing" MySQL routines get `DROP ... IF EXISTS`, PostgreSQL functions rely on `CREATE OR REPLACE`. Standalone PostgreSQL sequences are not dumped.
+
+## Execution plans
+
+`explain` runs `EXPLAIN FORMAT=JSON` (MySQL, MariaDB) or `EXPLAIN (FORMAT JSON)` (PostgreSQL) for exactly one statement on a separate connection. `ANALYZE` actually runs the statement, so it is only offered for reading statements on PostgreSQL. The frontend turns both JSON formats into one tree and marks full scans of at least 1000 rows, filesorts, temporary tables, on disk sorts and estimates that are off by a factor of ten or more.
+
+## Error explanations
+
+PostgreSQL errors carry their SQLSTATE in the message (`ERROR 42P01: ...`), MySQL and MariaDB errors their error number (`ERROR 1146 (42S02): ...`). `lib/dbErrors.ts` maps these codes, and a few connection error patterns, to a plain language explanation that is shown above the original message. Because the codes do not depend on the server language, this also works with a German PostgreSQL.
+
+## Snippets and shortcuts
+
+Snippets live in `snippets.json` in the app data folder and are global, not bound to a connection. Shortcuts are stored as overrides in the settings and merged with the defaults in `lib/shortcuts.ts`. A combination needs Ctrl or Alt, or a function key, and may not be used by another action. The SQL editor rebuilds its keymap through a CodeMirror compartment when the shortcuts change.
+
+## Server variables and status
+
+`server_info` reads `SHOW GLOBAL VARIABLES` and `SHOW GLOBAL STATUS` on MySQL and MariaDB. On PostgreSQL variables come from `pg_settings` with category and description, and a setting counts as changed when its source is neither the default nor a value Strata or the server set for its own connection. PostgreSQL has no status list like MySQL, so Strata builds one from the version, uptime, connections and `pg_stat_database` of the current database. The view is read only.
 
 ## Process list
 
@@ -145,6 +173,10 @@ Updates use `tauri-plugin-updater` from Rust. `check_for_update` asks the endpoi
 ## Logging
 
 Logs go to stdout and to a daily rotating file in the app log folder, seven files are kept. Commands log their outcome with counts and durations, never SQL text or passwords. Database errors are logged by kind only, because servers often quote parts of the statement in their message. Connecting, testing, the schema tree, table descriptions, DDL, completion and table loads write a `command timing` line with the command name, the duration and whether it succeeded, so slow steps can be found in the log of the installed app.
+
+## Bundle
+
+Dialogs that open on request (designer, import, dump, explain, snippets, server variables, process list, structure, settings, history) are loaded with `lazy` the first time their request is set, through `OnDemand`. Query and table tabs are loaded lazily too, which keeps CodeMirror and the grid out of the first chunk. The start loads about 700 KB of JavaScript instead of 1.5 MB.
 
 ## Frontend state
 

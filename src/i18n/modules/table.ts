@@ -27,6 +27,28 @@ export const de = {
     followKey: (table: string) => `Zu „${table}“ springen`,
     followKeyVia: (table: string, columns: string) => `Zu „${table}“ springen (${columns})`,
     followFailed: "Verknüpfte Zeile konnte nicht geöffnet werden",
+    findReplace: {
+        button: "Suchen und Ersetzen",
+        title: "Suchen und Ersetzen",
+        description:
+            "Sucht in den geladenen Zeilen. Treffer werden als Änderungen eingetragen, gespeichert wird erst nach der SQL-Vorschau.",
+        find: "Suchen nach",
+        replace: "Ersetzen durch",
+        column: "Spalte",
+        allColumns: "Alle Spalten außer dem Schlüssel",
+        matchCase: "Groß- und Kleinschreibung beachten",
+        wholeCell: "Nur ganze Zellen",
+        loading: "Zeilen werden geladen…",
+        scope: (rows: number) => `Durchsucht ${rows.toLocaleString("de-DE")} geladene Zeilen`,
+        matches: (cells: number, rows: number) =>
+            cells === 0
+                ? "Keine Treffer"
+                : `${cells.toLocaleString("de-DE")} ${cells === 1 ? "Zelle" : "Zellen"} in ${rows.toLocaleString("de-DE")} ${rows === 1 ? "Zeile" : "Zeilen"}`,
+        apply: (cells: number) =>
+            cells === 0 ? "Ersetzen" : `${cells.toLocaleString("de-DE")} ersetzen`,
+        applied: (cells: number) =>
+            `${cells.toLocaleString("de-DE")} ${cells === 1 ? "Zelle" : "Zellen"} geändert. Prüfe und speichere die Änderungen.`,
+    },
     ddlLabel: (table: string) => `DDL von ${table}`,
     moreRows: "Weitere Zeilen vorhanden",
     reviewTitle: "Änderungen speichern",
@@ -89,6 +111,28 @@ export const en: typeof de = {
     followKey: (table: string) => `Go to “${table}”`,
     followKeyVia: (table: string, columns: string) => `Go to “${table}” (${columns})`,
     followFailed: "The linked row could not be opened",
+    findReplace: {
+        button: "Find and replace",
+        title: "Find and replace",
+        description:
+            "Searches the loaded rows. Matches become pending changes, nothing is saved before the SQL preview.",
+        find: "Find",
+        replace: "Replace with",
+        column: "Column",
+        allColumns: "All columns except the key",
+        matchCase: "Match case",
+        wholeCell: "Whole cells only",
+        loading: "Loading rows…",
+        scope: (rows: number) => `Searches ${rows.toLocaleString("en-US")} loaded rows`,
+        matches: (cells: number, rows: number) =>
+            cells === 0
+                ? "No matches"
+                : `${cells.toLocaleString("en-US")} ${cells === 1 ? "cell" : "cells"} in ${rows.toLocaleString("en-US")} ${rows === 1 ? "row" : "rows"}`,
+        apply: (cells: number) =>
+            cells === 0 ? "Replace" : `Replace ${cells.toLocaleString("en-US")}`,
+        applied: (cells: number) =>
+            `${cells.toLocaleString("en-US")} ${cells === 1 ? "cell" : "cells"} changed. Review and save the changes.`,
+    },
     ddlLabel: (table: string) => `DDL of ${table}`,
     moreRows: "More rows available",
     reviewTitle: "Save changes",

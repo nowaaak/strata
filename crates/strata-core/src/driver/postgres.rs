@@ -261,7 +261,7 @@ fn column_meta(name: &str, column_type: Option<&Type>) -> ColumnMeta {
 
 fn map_error(err: tokio_postgres::Error) -> DbError {
     if let Some(db) = err.as_db_error() {
-        let mut message = format!("{}: {}", db.severity(), db.message());
+        let mut message = format!("{} {}: {}", db.severity(), db.code().code(), db.message());
         if let Some(detail) = db.detail() {
             message.push_str(&format!("\nDETAIL: {detail}"));
         }

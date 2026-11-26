@@ -35,6 +35,18 @@ export type HostKeyPrompt = {
 
 export type StructureRequest = { sessionId: string; action: DdlAction } | null;
 
+export type ExplainRequest = {
+    sessionId: string;
+    database: string | null;
+    sql: string;
+    engine: "mysql" | "postgres";
+    writes: boolean;
+} | null;
+
+export type DumpRequest = { sessionId: string; database: string; schema: string | null } | null;
+
+export type SnippetsDialogState = { tabId: string | null } | null;
+
 export type ImportRequest = { sessionId: string; target: TableTarget } | null;
 
 export type DesignerRequest =
@@ -42,7 +54,7 @@ export type DesignerRequest =
     | { mode: "create"; sessionId: string; database: string; schema: string | null }
     | null;
 
-type UiState = {
+export type UiState = {
     paletteOpen: boolean;
     structureRequest: StructureRequest;
     setStructureRequest: (request: StructureRequest) => void;
@@ -50,8 +62,16 @@ type UiState = {
     setDesignerRequest: (request: DesignerRequest) => void;
     importRequest: ImportRequest;
     setImportRequest: (request: ImportRequest) => void;
+    snippetsDialog: SnippetsDialogState;
+    setSnippetsDialog: (state: SnippetsDialogState) => void;
+    dumpRequest: DumpRequest;
+    setDumpRequest: (request: DumpRequest) => void;
+    explainRequest: ExplainRequest;
+    setExplainRequest: (request: ExplainRequest) => void;
     processListSession: string | null;
     setProcessListSession: (sessionId: string | null) => void;
+    serverInfoSession: string | null;
+    setServerInfoSession: (sessionId: string | null) => void;
     historyDialog: HistoryDialogState;
     setHistoryDialog: (state: HistoryDialogState) => void;
     hostKeyPrompt: HostKeyPrompt;
@@ -82,8 +102,16 @@ export const useUiStore = create<UiState>((set, get) => ({
     setDesignerRequest: (designerRequest) => set({ designerRequest, paletteOpen: false }),
     importRequest: null,
     setImportRequest: (importRequest) => set({ importRequest, paletteOpen: false }),
+    snippetsDialog: null,
+    setSnippetsDialog: (snippetsDialog) => set({ snippetsDialog, paletteOpen: false }),
+    dumpRequest: null,
+    setDumpRequest: (dumpRequest) => set({ dumpRequest, paletteOpen: false }),
+    explainRequest: null,
+    setExplainRequest: (explainRequest) => set({ explainRequest, paletteOpen: false }),
     processListSession: null,
     setProcessListSession: (processListSession) => set({ processListSession, paletteOpen: false }),
+    serverInfoSession: null,
+    setServerInfoSession: (serverInfoSession) => set({ serverInfoSession, paletteOpen: false }),
     historyDialog: null,
     setHistoryDialog: (historyDialog) => set({ historyDialog, paletteOpen: false }),
     hostKeyPrompt: null,

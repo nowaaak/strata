@@ -5,6 +5,7 @@ use strata_core::history::HistoryStore;
 use strata_core::profiles::ProfileStore;
 use strata_core::session::SessionManager;
 use strata_core::settings::SettingsStore;
+use strata_core::snippets::SnippetStore;
 use strata_core::workspace::WorkspaceStore;
 use ts_rs::TS;
 
@@ -22,5 +23,6 @@ pub struct AppState {
     pub sessions: SessionManager,
     pub workspace: WorkspaceStore,
     pub history: HistoryStore,
+    pub snippets: SnippetStore,
     pub paths: AppPaths,
 }

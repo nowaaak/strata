@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FolderIcon, PlusIcon, SearchIcon, ServerIcon, SettingsIcon, XIcon } from "lucide-react";
-import { useState } from "react";
+import { useState, type DragEvent } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "@/api/invoke";
 import { deleteProfile, renameGroup, setProfileGroup } from "@/api/profiles";
@@ -29,6 +29,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { requestStructure, SessionTree, TreeToggle } from "@/features/schema-tree/SchemaTree";
 import { UpdateNotice } from "@/features/updater/UpdateNotice";
 import { sessionForProfile, useWorkspace } from "@/features/workspace/workspaceStore";
+import { useShortcutLabel } from "@/features/settings/useShortcuts";
 import { getT, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { requestConnect, useDisconnect } from "./connect";
@@ -57,6 +58,7 @@ function useGroupActions() {
 
 export function ConnectionsSidebar() {
     const t = useT();
+    const shortcut = useShortcutLabel();
     const text = t.connections.sidebar;
     const profiles = useProfiles();
     const filter = useUiStore((ui) => ui.treeFilter);
@@ -66,9 +68,62 @@ export function ConnectionsSidebar() {
     const actions = useGroupActions();
     const grouped = groupProfiles(profiles.data ?? []);
     const groupList = grouped.groups.map((group) => group.name);
+    const [dragging, setDragging] = useState<ConnectionProfile | null>(null);
+    const [dropTarget, setDropTarget] = useState<string | null>(null);
+
+    const dropProps = (group: string | null) => ({
+        onDragOver: (event: DragEvent) => {
+            if (!dragging) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            event.dataTransfer.dropEffect = "move";
+            setDropTarget(group ?? "");
+        },
+        onDragLeave: (event: DragEvent) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                setDropTarget((current) => (current === (group ?? "") ? null : current));
+            }
+        },
+        onDrop: (event: DragEvent) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const profile = dragging;
+            setDragging(null);
+            setDropTarget(null);
+            if (profile && (profile.group ?? null) !== group) {
+                void actions.move(profile.id, group);
+            }
+        },
+    });
 
     const profileNode = (profile: ConnectionProfile, level: number) => (
-        <li key={profile.id} role="treeitem" aria-selected={false}>
+        <li
+            key={profile.id}
+            role="treeitem"
+            aria-selected={false}
+            draggable
+            onPointerDownCapture={(event) => {
+                const nested = (event.target as HTMLElement).closest('[role="group"]');
+                event.currentTarget.dataset.dragOk =
+                    nested && event.currentTarget.contains(nested) ? "0" : "1";
+            }}
+            onDragStart={(event) => {
+                if (event.currentTarget.dataset.dragOk === "0") {
+                    event.preventDefault();
+                    return;
+                }
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", profile.name);
+                setDragging(profile);
+            }}
+            onDragEnd={() => {
+                setDragging(null);
+                setDropTarget(null);
+            }}
+            className={cn(dragging?.id === profile.id && "opacity-50")}
+        >
             <ProfileNode
                 profile={profile}
                 level={level}
@@ -151,7 +206,15 @@ export function ConnectionsSidebar() {
                         </Button>
                     </div>
                 ) : (
-                    <ul role="tree" aria-label={text.tree} className="flex flex-col gap-px pb-2">
+                    <ul
+                        role="tree"
+                        aria-label={text.tree}
+                        {...dropProps(null)}
+                        className={cn(
+                            "flex min-h-full flex-col gap-px rounded-lg pb-2",
+                            dragging?.group && dropTarget === "" && "bg-sidebar-accent/40",
+                        )}
+                    >
                         {grouped.ungrouped.map((profile) => profileNode(profile, 0))}
                         {grouped.groups.map((group) => {
                             const open = !collapsed.includes(group.name);
@@ -160,6 +223,14 @@ export function ConnectionsSidebar() {
                                     key={`group:${group.name}`}
                                     role="treeitem"
                                     aria-selected={false}
+                                    {...dropProps(group.name)}
+                                    className={cn(
+                                        "rounded-md",
+                                        dragging &&
+                                            dropTarget === group.name &&
+                                            dragging.group !== group.name &&
+                                            "bg-primary/10 ring-1 ring-primary/40",
+                                    )}
                                 >
                                     <TreeToggle
                                         label={group.name}
@@ -240,7 +311,7 @@ export function ConnectionsSidebar() {
                     <SettingsIcon className="size-4" aria-hidden />
                     {text.settings}
                     <kbd className="ml-auto text-[0.6875rem] text-sidebar-foreground/40">
-                        {t.common.ctrl}+,
+                        {shortcut("settings")}
                     </kbd>
                 </button>
             </div>
@@ -324,6 +395,13 @@ function ProfileNode({
                         }
                     >
                         {t.processes.menu}
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                        onSelect={() =>
+                            useUiStore.getState().setServerInfoSession(session.sessionId)
+                        }
+                    >
+                        {t.server.menu}
                     </ContextMenuItem>
                     <ContextMenuItem onSelect={() => void disconnect(session.sessionId)}>
                         {menuText.disconnect}

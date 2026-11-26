@@ -12,6 +12,7 @@ use strata_core::profiles::ProfileStore;
 use strata_core::secrets::KeyringStore;
 use strata_core::session::SessionManager;
 use strata_core::settings::SettingsStore;
+use strata_core::snippets::SnippetStore;
 use strata_core::workspace::WorkspaceStore;
 use tauri::Manager;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -25,6 +26,7 @@ const SETTINGS_FILE: &str = "settings.json";
 const PROFILES_FILE: &str = "profiles.json";
 const WORKSPACE_FILE: &str = "workspace.json";
 const HISTORY_FILE: &str = "history.jsonl";
+const SNIPPETS_FILE: &str = "snippets.json";
 const LOG_FILES_KEPT: usize = 7;
 
 pub fn run() {
@@ -50,11 +52,13 @@ pub fn run() {
                 let profiles =
                     Arc::new(ProfileStore::load(data_dir.join(PROFILES_FILE), secrets).await?);
                 let history = HistoryStore::load(data_dir.join(HISTORY_FILE)).await?;
+                let snippets = SnippetStore::load(data_dir.join(SNIPPETS_FILE)).await?;
                 Ok::<_, strata_core::CoreError>(AppState {
                     settings,
                     sessions: SessionManager::new(profiles.clone()),
                     workspace: WorkspaceStore::new(data_dir.join(WORKSPACE_FILE)),
                     history,
+                    snippets,
                     profiles,
                     paths: AppPaths {
                         data_dir: data_dir.display().to_string(),
@@ -81,6 +85,7 @@ pub fn run() {
             commands::sessions::list_sessions,
             commands::processes::list_processes,
             commands::processes::kill_process,
+            commands::server::server_info,
             commands::routines::list_routines,
             commands::routines::routine_ddl,
             commands::schema::list_databases,
@@ -101,6 +106,8 @@ pub fn run() {
             commands::import::csv_preview,
             commands::import::import_csv,
             commands::query::cancel_export,
+            commands::query::explain_query,
+            commands::query::dump_database,
             commands::design::table_design,
             commands::design::preview_alter,
             commands::design::apply_alter,
@@ -115,6 +122,9 @@ pub fn run() {
             commands::history::list_history,
             commands::history::delete_history_entry,
             commands::history::clear_history,
+            commands::snippets::list_snippets,
+            commands::snippets::save_snippet,
+            commands::snippets::delete_snippet,
             commands::updater::get_app_info,
             commands::updater::check_for_update,
             commands::updater::install_update,

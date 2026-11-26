@@ -1,8 +1,11 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use strata_core::design::{AlterOp, ColumnDef, DefaultValue, NewTable};
+use strata_core::design::{
+    AlterOp, ColumnDef, ColumnPosition, DefaultValue, ForeignKeyRule, NewTable,
+};
 use strata_core::driver::ColumnKind;
+use strata_core::dump::DumpOptions;
 use strata_core::export::{ExportFormat, ExportSource};
 use strata_core::import::{ColumnMapping, CsvImport, CsvOptions};
 use strata_core::processes::KillMode;
@@ -12,6 +15,7 @@ use strata_core::profiles::{
 use strata_core::routines::{RoutineKind, RoutineTarget};
 use strata_core::schema::{ObjectKind, TableTarget};
 use strata_core::secrets::MemorySecretStore;
+use strata_core::server::ServerInfoKind;
 use strata_core::session::{QUERY_ROW_CAP, QueryEvent, Session, SessionManager, StatementOutcome};
 use strata_core::sql::{CellValue, DdlAction, RowChange, SortSpec, TableQuery};
 
@@ -883,6 +887,7 @@ async fn postgres_18_processes() {
 
 fn column_def(name: &str, data_type: &str, nullable: bool, default: DefaultValue) -> ColumnDef {
     ColumnDef {
+        comment: None,
         name: name.into(),
         data_type: data_type.into(),
         nullable,
@@ -910,6 +915,7 @@ async fn designer(server: Server, table: &str) {
             target: target.clone(),
             columns: vec![
                 ColumnDef {
+                    comment: None,
                     auto_increment: true,
                     ..column_def(
                         "id",
@@ -963,10 +969,12 @@ async fn designer(server: Server, table: &str) {
 
     let ops = vec![
         AlterOp::ChangeColumn {
+            position: None,
             name: "label".into(),
             column: column_def("title", "varchar(120)", false, DefaultValue::Keep),
         },
         AlterOp::AddColumn {
+            position: None,
             column: column_def(
                 "note",
                 "text",
@@ -1033,9 +1041,11 @@ async fn designer(server: Server, table: &str) {
     if postgres {
         let failing = vec![
             AlterOp::AddColumn {
+                position: None,
                 column: column_def("extra", "int", true, DefaultValue::None),
             },
             AlterOp::ChangeColumn {
+                position: None,
                 name: "title".into(),
                 column: column_def("title", "integer", false, DefaultValue::Keep),
             },
@@ -1053,6 +1063,7 @@ async fn designer(server: Server, table: &str) {
         .apply_alter(
             &target,
             &[AlterOp::ChangeColumn {
+                position: None,
                 name: "note".into(),
                 column: column_def("note", "text", false, DefaultValue::Keep),
             }],
@@ -1141,6 +1152,204 @@ async fn postgres_designer() {
 #[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
 async fn postgres_18_designer() {
     designer(POSTGRES_18, "it_design_postgres").await;
+}
+
+async fn designer_keys(server: Server, prefix: &str) {
+    let harness = open(server, Safety::Normal).await;
+    let session = &harness.session;
+    let postgres = server.engine == Engine::Postgres;
+    let schema = if postgres { "public." } else { "" };
+    let parent = format!("{prefix}_parent");
+    let child = format!("{prefix}_child");
+    run_in(
+        session,
+        "k",
+        "strata",
+        &format!(
+            "DROP TABLE IF EXISTS {schema}{child}; DROP TABLE IF EXISTS {schema}{parent};
+             CREATE TABLE {schema}{parent} (code INT PRIMARY KEY);
+             CREATE TABLE {schema}{child} (id INT NOT NULL, label VARCHAR(20), ref INT);
+             INSERT INTO {schema}{parent} VALUES (1), (2);
+             INSERT INTO {schema}{child} VALUES (1, 'a', 1), (2, 'b', 2)"
+        ),
+    )
+    .await;
+    let target = target(server, &child);
+
+    let mut label = column_def("label", "varchar(20)", true, DefaultValue::Keep);
+    label.comment = Some("Bezeichnung für Menschen".into());
+    let mut ops = vec![
+        AlterOp::ChangeColumn {
+            name: "label".into(),
+            column: label,
+            position: (!postgres).then_some(ColumnPosition::First),
+        },
+        AlterOp::AddPrimaryKey {
+            columns: vec!["id".into()],
+        },
+        AlterOp::AddForeignKey {
+            name: format!("{child}_ref"),
+            columns: vec!["ref".into()],
+            target_table: parent.clone(),
+            target_columns: vec!["code".into()],
+            on_delete: ForeignKeyRule::Cascade,
+            on_update: ForeignKeyRule::NoAction,
+        },
+    ];
+    if !postgres {
+        ops.push(AlterOp::AddColumn {
+            column: column_def("first", "int", true, DefaultValue::None),
+            position: Some(ColumnPosition::After {
+                column: "label".into(),
+            }),
+        });
+    }
+    let statements = session.apply_alter(&target, &ops).await.unwrap();
+    println!("KEYS {prefix}: {statements:?}");
+
+    let design = session.table_design(&target).await.unwrap();
+    let names: Vec<&str> = design
+        .columns
+        .iter()
+        .map(|column| column.name.as_str())
+        .collect();
+    if postgres {
+        assert_eq!(names, ["id", "label", "ref"]);
+    } else {
+        assert_eq!(names, ["label", "first", "id", "ref"]);
+    }
+    let label = design
+        .columns
+        .iter()
+        .find(|column| column.name == "label")
+        .unwrap();
+    assert_eq!(label.comment.as_deref(), Some("Bezeichnung für Menschen"));
+    assert!(
+        design
+            .indexes
+            .iter()
+            .any(|index| index.primary && index.columns == ["id"]),
+        "{design:?}"
+    );
+    let key = &design.foreign_keys[0];
+    assert_eq!(key.name, format!("{child}_ref"));
+    assert_eq!(key.columns, ["ref"]);
+    assert_eq!(key.target.table, parent);
+    assert_eq!(key.target_columns, ["code"]);
+    assert_eq!(key.on_delete, ForeignKeyRule::Cascade);
+    assert_eq!(key.on_update, ForeignKeyRule::NoAction);
+
+    run_in(
+        session,
+        "k",
+        "strata",
+        &format!("DELETE FROM {schema}{parent} WHERE code = 1"),
+    )
+    .await;
+    run_in(
+        session,
+        "k",
+        "strata",
+        &format!("SELECT COUNT(*) FROM {schema}{child}"),
+    )
+    .await;
+    assert_eq!(
+        session.fetch_rows("k", 0, 0, 1).unwrap()[0][0].as_deref(),
+        Some("1"),
+        "ON DELETE CASCADE must remove the child row"
+    );
+
+    let primary = design
+        .indexes
+        .iter()
+        .find(|index| index.primary)
+        .unwrap()
+        .name
+        .clone();
+    let mut label = column_def("label", "varchar(20)", false, DefaultValue::Keep);
+    label.comment = Some(String::new());
+    session
+        .apply_alter(
+            &target,
+            &[
+                AlterOp::DropForeignKey {
+                    name: format!("{child}_ref"),
+                },
+                AlterOp::DropIndex { name: primary },
+                AlterOp::ChangeColumn {
+                    name: "label".into(),
+                    column: label,
+                    position: None,
+                },
+                AlterOp::AddPrimaryKey {
+                    columns: vec!["id".into(), "label".into()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+    let design = session.table_design(&target).await.unwrap();
+    assert!(design.foreign_keys.is_empty(), "{design:?}");
+    assert!(
+        design
+            .indexes
+            .iter()
+            .any(|index| index.primary && index.columns == ["id", "label"]),
+        "{design:?}"
+    );
+    let label = design
+        .columns
+        .iter()
+        .find(|column| column.name == "label")
+        .unwrap();
+    assert_eq!(label.comment, None);
+
+    if postgres {
+        let error = session
+            .preview_alter(
+                &target,
+                &[AlterOp::ChangeColumn {
+                    name: "ref".into(),
+                    column: column_def("ref", "integer", true, DefaultValue::Keep),
+                    position: Some(ColumnPosition::First),
+                }],
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), "invalid_input");
+    }
+
+    run_in(
+        session,
+        "k",
+        "strata",
+        &format!("DROP TABLE {schema}{child}; DROP TABLE {schema}{parent}"),
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_designer_keys() {
+    designer_keys(MYSQL, "it_keys_mysql").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_designer_keys() {
+    designer_keys(MARIADB, "it_keys_mariadb").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_designer_keys() {
+    designer_keys(POSTGRES, "it_keys_pg").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_18_designer_keys() {
+    designer_keys(POSTGRES_18, "it_keys_pg18").await;
 }
 
 async fn routines(server: Server, prefix: &str) {
@@ -1638,4 +1847,428 @@ async fn mariadb_csv_import() {
 #[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
 async fn postgres_csv_import() {
     csv_import(POSTGRES, "it_imp_pg").await;
+}
+
+async fn error_codes(server: Server) {
+    let harness = open(server, Safety::Normal).await;
+    let events = run(
+        &harness.session,
+        "e",
+        "SELECT * FROM it_missing_table_xyz",
+        QUERY_ROW_CAP,
+    )
+    .await;
+    let (message, _, _) = failure(&events).expect("the query must fail");
+    let expected = if server.engine == Engine::Postgres {
+        "ERROR 42P01:"
+    } else {
+        "ERROR 1146 ("
+    };
+    assert!(message.starts_with(expected), "{message}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_error_codes() {
+    error_codes(MYSQL).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_error_codes() {
+    error_codes(MARIADB).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_error_codes() {
+    error_codes(POSTGRES).await;
+}
+
+async fn explain(server: Server, prefix: &str) {
+    let harness = open(server, Safety::Normal).await;
+    let session = &harness.session;
+    let postgres = server.engine == Engine::Postgres;
+    let schema = if postgres { "public." } else { "" };
+    let table = format!("{prefix}_t");
+    run_in(
+        session,
+        "x",
+        "strata",
+        &format!(
+            "DROP TABLE IF EXISTS {schema}{table}; CREATE TABLE {schema}{table} (id INT PRIMARY KEY, name VARCHAR(20)); INSERT INTO {schema}{table} VALUES (1, 'a'), (2, 'b')"
+        ),
+    )
+    .await;
+    let sql = format!(
+        "SELECT * FROM {schema}{table} t JOIN {schema}{table} u ON u.id = t.id WHERE t.name = 'a'"
+    );
+    let plan = session.explain(Some("strata"), &sql, false).await.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&plan).unwrap();
+    println!("PLAN {prefix}: {parsed}");
+    if postgres {
+        assert!(parsed[0]["Plan"]["Node Type"].is_string(), "{parsed}");
+        let analyzed = session.explain(Some("strata"), &sql, true).await.unwrap();
+        let analyzed: serde_json::Value = serde_json::from_str(&analyzed).unwrap();
+        println!("ANALYZE {prefix}: {analyzed}");
+        assert!(analyzed[0]["Plan"]["Actual Rows"].is_number(), "{analyzed}");
+        assert!(analyzed[0]["Execution Time"].is_number(), "{analyzed}");
+        let err = session
+            .explain(
+                Some("strata"),
+                &format!("DELETE FROM {schema}{table}"),
+                true,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), "invalid_input");
+    } else {
+        assert!(parsed["query_block"].is_object(), "{parsed}");
+        let err = session
+            .explain(Some("strata"), &sql, true)
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), "invalid_input");
+    }
+    let err = session
+        .explain(Some("strata"), "SELECT 1; SELECT 2", false)
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), "invalid_input");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_explain() {
+    explain(MYSQL, "it_ex_mysql").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_explain() {
+    explain(MARIADB, "it_ex_mariadb").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_explain() {
+    explain(POSTGRES, "it_ex_pg").await;
+}
+
+async fn dump_roundtrip(server: Server, prefix: &str) {
+    let harness = open(server, Safety::Normal).await;
+    let session = &harness.session;
+    let postgres = server.engine == Engine::Postgres;
+    let source = format!("{prefix}_src");
+    let restore = format!("{prefix}_restore");
+    for database in [&source, &restore] {
+        let _ = session
+            .run_ddl(&DdlAction::DropDatabase {
+                database: database.clone(),
+            })
+            .await;
+        session
+            .run_ddl(&DdlAction::CreateDatabase {
+                name: database.clone(),
+            })
+            .await
+            .unwrap();
+    }
+    let setup = if postgres {
+        "CREATE TABLE public.kunden (id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, name text NOT NULL, foto bytea);
+         CREATE TABLE public.bestellungen (id serial PRIMARY KEY, kunde_id integer NOT NULL REFERENCES public.kunden (id), betrag numeric(10,2), notiz text);
+         CREATE INDEX bestellungen_kunde ON public.bestellungen (kunde_id);
+         INSERT INTO public.kunden (name, foto) VALUES ('Käse ''Müller''', '\\x00ff10'), ('Brot', NULL);
+         INSERT INTO public.bestellungen (kunde_id, betrag, notiz) VALUES (1, 12.50, 'zwei\nZeilen'), (2, NULL, NULL);
+         CREATE VIEW public.umsatz AS SELECT kunde_id, SUM(betrag) AS summe FROM public.bestellungen GROUP BY kunde_id;
+         CREATE FUNCTION public.netto(x numeric) RETURNS numeric LANGUAGE sql IMMUTABLE AS $$ SELECT x / 2 $$;
+         CREATE FUNCTION public.kunden_anzahl() RETURNS bigint LANGUAGE sql AS $$ SELECT count(*) FROM public.kunden $$;
+         CREATE FUNCTION public.gross() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.name := upper(NEW.name); RETURN NEW; END $$;
+         CREATE TRIGGER kunden_gross BEFORE INSERT ON public.kunden FOR EACH ROW EXECUTE FUNCTION public.gross();
+         CREATE PROCEDURE public.leeren() LANGUAGE sql AS $$ DELETE FROM public.bestellungen WHERE false $$;
+         CREATE VIEW public.netto_umsatz AS SELECT public.netto(betrag) AS netto FROM public.bestellungen"
+    } else {
+        "CREATE TABLE kunden (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(40) NOT NULL, foto BLOB);
+         CREATE TABLE bestellungen (id INT AUTO_INCREMENT PRIMARY KEY, kunde_id INT NOT NULL, betrag DECIMAL(10,2), notiz TEXT, CONSTRAINT bestellungen_kunde FOREIGN KEY (kunde_id) REFERENCES kunden (id));
+         INSERT INTO kunden (name, foto) VALUES ('Käse ''Müller''', X'00FF10'), ('Brot', NULL);
+         INSERT INTO bestellungen (kunde_id, betrag, notiz) VALUES (1, 12.50, 'zwei\nZeilen'), (2, NULL, NULL);
+         CREATE VIEW umsatz AS SELECT kunde_id, SUM(betrag) AS summe FROM bestellungen GROUP BY kunde_id;
+         DELIMITER //
+         CREATE FUNCTION netto(x DECIMAL(10,2)) RETURNS DECIMAL(10,2) DETERMINISTIC BEGIN RETURN x / 2; END//
+         CREATE PROCEDURE anzahl(OUT n INT) BEGIN SELECT COUNT(*) INTO n FROM kunden; END//
+         CREATE TRIGGER kunden_gross BEFORE INSERT ON kunden FOR EACH ROW BEGIN SET NEW.name = UPPER(NEW.name); END//
+         CREATE EVENT aufraeumen ON SCHEDULE EVERY 1 DAY DISABLE DO BEGIN DELETE FROM bestellungen WHERE 1 = 0; END//
+         DELIMITER ;
+         CREATE VIEW netto_umsatz AS SELECT netto(betrag) AS netto FROM bestellungen"
+    };
+    run_in(session, "s", &source, setup).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("dump.sql");
+    let summary = session
+        .dump(
+            "dump",
+            &DumpOptions {
+                database: source.clone(),
+                schema: postgres.then(|| "public".into()),
+                tables: Vec::new(),
+                structure: true,
+                data: true,
+                drop_existing: true,
+                routines: true,
+            },
+            path.clone(),
+            Box::new(|_| {}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(summary.tables, 4, "{summary:?}");
+    assert_eq!(summary.rows, 4);
+    let script = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        script.starts_with("-- Strata SQL dump"),
+        "{}",
+        &script[..80]
+    );
+    assert!(!script.contains("DEFINER="), "{script}");
+    if !postgres {
+        assert!(script.contains("DELIMITER ;;"), "{script}");
+    }
+    let trigger_at = script
+        .find("-- kunden_gross")
+        .expect("the trigger must be dumped");
+    let insert_at = script.find("INSERT INTO").unwrap();
+    assert!(trigger_at > insert_at, "triggers must follow the data");
+
+    run_in(session, "r", &restore, &script).await;
+    let restored: Vec<String> = session
+        .list_routines(&restore, postgres.then_some("public"))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|routine| routine.name)
+        .collect();
+    let expected: &[&str] = if postgres {
+        &["gross", "kunden_anzahl", "kunden_gross", "leeren", "netto"]
+    } else {
+        &["anzahl", "aufraeumen", "kunden_gross", "netto"]
+    };
+    for name in expected {
+        assert!(
+            restored.iter().any(|routine| routine == name),
+            "{name} missing: {restored:?}"
+        );
+    }
+    let calls = if postgres {
+        "SELECT netto(10), kunden_anzahl()"
+    } else {
+        "SELECT netto(10)"
+    };
+    run_in(session, "r", &restore, calls).await;
+    let rows = session.fetch_rows("r", 0, 0, 1).unwrap();
+    assert!(
+        rows[0][0]
+            .as_deref()
+            .is_some_and(|value| value.starts_with('5')),
+        "{rows:?}"
+    );
+    if postgres {
+        assert_eq!(rows[0][1].as_deref(), Some("2"));
+    }
+    run_in(session, "r", &restore, "SELECT COUNT(*) FROM netto_umsatz").await;
+    assert_eq!(
+        session.fetch_rows("r", 0, 0, 1).unwrap()[0][0].as_deref(),
+        Some("2")
+    );
+    run_in(
+        session,
+        "r",
+        &restore,
+        "SELECT name, foto FROM kunden ORDER BY id",
+    )
+    .await;
+    let rows = session.fetch_rows("r", 0, 0, 10).unwrap();
+    assert_eq!(rows[0][0].as_deref(), Some("Käse 'Müller'"));
+    assert_eq!(
+        rows[0][1].as_deref(),
+        Some(if postgres { r"\x00ff10" } else { "0x00FF10" })
+    );
+    assert_eq!(rows[1][1], None);
+    run_in(
+        session,
+        "r",
+        &restore,
+        "SELECT notiz, betrag FROM bestellungen ORDER BY id",
+    )
+    .await;
+    let rows = session.fetch_rows("r", 0, 0, 10).unwrap();
+    assert_eq!(rows[0][0].as_deref(), Some("zwei\nZeilen"));
+    assert_eq!(rows[1][1], None);
+    run_in(session, "r", &restore, "SELECT COUNT(*) FROM umsatz").await;
+    assert_eq!(
+        session.fetch_rows("r", 0, 0, 1).unwrap()[0][0].as_deref(),
+        Some("2")
+    );
+    run_in(
+        session,
+        "r",
+        &restore,
+        "INSERT INTO kunden (name) VALUES ('neu')",
+    )
+    .await;
+    run_in(
+        session,
+        "r",
+        &restore,
+        "SELECT MAX(id), MAX(name) FROM kunden",
+    )
+    .await;
+    let rows = session.fetch_rows("r", 0, 0, 1).unwrap();
+    assert_eq!(
+        rows[0][0].as_deref(),
+        Some("3"),
+        "auto increment must continue after the restored rows"
+    );
+    assert_eq!(
+        rows[0][1].as_deref(),
+        Some("NEU"),
+        "the restored trigger must run"
+    );
+    let events = Mutex::new(Vec::new());
+    session
+        .execute(
+            "r2",
+            Some(&restore),
+            "INSERT INTO bestellungen (kunde_id) VALUES (99)",
+            QUERY_ROW_CAP,
+            &|event| events.lock().unwrap().push(event),
+        )
+        .await
+        .unwrap();
+    assert!(
+        failure(&events.into_inner().unwrap()).is_some(),
+        "the restored foreign key must reject a missing customer"
+    );
+    let info = session
+        .describe_table(&TableTarget {
+            database: restore.clone(),
+            schema: postgres.then(|| "public".into()),
+            table: "bestellungen".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        info.foreign_keys.len(),
+        1,
+        "the foreign key must be restored"
+    );
+
+    for database in [&source, &restore] {
+        session
+            .run_ddl(&DdlAction::DropDatabase {
+                database: database.clone(),
+            })
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_dump_roundtrip() {
+    dump_roundtrip(MYSQL, "it_dump_mysql").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_dump_roundtrip() {
+    dump_roundtrip(MARIADB, "it_dump_mariadb").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_dump_roundtrip() {
+    dump_roundtrip(POSTGRES, "it_dump_pg").await;
+}
+
+async fn server_info(server: Server) {
+    let harness = open(server, Safety::ReadOnly).await;
+    let session = &harness.session;
+    let postgres = server.engine == Engine::Postgres;
+
+    let variables = session
+        .server_info(ServerInfoKind::Variables)
+        .await
+        .unwrap();
+    assert!(variables.len() > 100, "{}", variables.len());
+    let max = variables
+        .iter()
+        .find(|setting| setting.name == "max_connections")
+        .expect("max_connections must be listed");
+    assert!(max.value.parse::<u32>().is_ok(), "{max:?}");
+    if postgres {
+        let buffers = variables
+            .iter()
+            .find(|setting| setting.name == "shared_buffers")
+            .unwrap();
+        assert!(buffers.value.ends_with("B"), "{buffers:?}");
+        assert!(buffers.category.is_some() && buffers.description.is_some());
+        assert!(variables.iter().any(|setting| setting.changed));
+    }
+
+    let status = session.server_info(ServerInfoKind::Status).await.unwrap();
+    let names: Vec<&str> = status.iter().map(|setting| setting.name.as_str()).collect();
+    println!(
+        "STATUS {}: {} rows, {:?}",
+        server.port,
+        status.len(),
+        &names[..names.len().min(30)]
+    );
+    if postgres {
+        for name in [
+            "version",
+            "uptime",
+            "connections",
+            "database_size",
+            "xact_commit",
+            "deadlocks",
+        ] {
+            assert!(names.contains(&name), "{name} missing in {names:?}");
+        }
+        assert_eq!(names[0], "version");
+    } else {
+        for name in ["Uptime", "Threads_connected", "Questions"] {
+            assert!(names.contains(&name), "{name} missing");
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_server_info() {
+    server_info(MYSQL).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_server_info() {
+    server_info(MARIADB).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_server_info() {
+    server_info(POSTGRES).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_18_server_info() {
+    server_info(POSTGRES_18).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_18_dump_roundtrip() {
+    dump_roundtrip(POSTGRES_18, "it_dump_pg18").await;
 }

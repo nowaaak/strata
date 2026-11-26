@@ -2,39 +2,19 @@
 
 Effort: S is up to a day, M a few days, L a week or more.
 
-## 1. Core database work
+## Later
 
-Goal: the everyday HeidiSQL tasks work without falling back to another tool.
-
-| Item                                    | Why                                      | Effort |
-| --------------------------------------- | ---------------------------------------- | ------ |
-| SQL dump export of tables or a database | Backups and moving data between servers. | L      |
-
-## 2. Comfort
-
-| Item                                                | Why                                          | Effort |
-| --------------------------------------------------- | -------------------------------------------- | ------ |
-| Drag and drop connections into groups               | Faster than the context menu.                | S      |
-| Saved snippets                                      | Reuse frequent queries across connections.   | M      |
-| `EXPLAIN` output as a readable plan                 | Understanding slow queries.                  | M      |
-| Find and replace in result data                     | Bulk edits without writing `UPDATE` by hand. | M      |
-| Keyboard shortcut settings                          | Personal muscle memory from other tools.     | M      |
-| Translated database error messages for common cases | The raw server text is usually English.      | S      |
-
-## 3. Later
-
-| Item                                                                            | Why                                                                             | Effort |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ------ |
-| Table designer: change the primary key, column order, comments and foreign keys | The first version covers columns, defaults and plain indexes.                   | M      |
-| SQLite support                                                                  | Local files without a server.                                                   | L      |
-| ER diagram of a schema                                                          | Overview of larger databases.                                                   | L      |
-| User and privilege management                                                   | Admin tasks HeidiSQL covers.                                                    | L      |
-| Server variables and status                                                     | Tuning and diagnosis.                                                           | M      |
-| Split the frontend bundle                                                       | The bundle is about 1 MB. Fine locally, but it delays the first paint a little. | S      |
-| macOS and Linux builds                                                          | Only Windows has been run.                                                      | M      |
+| Item                          | Why                           | Effort |
+| ----------------------------- | ----------------------------- | ------ |
+| SQLite support                | Local files without a server. | L      |
+| ER diagram of a schema        | Overview of larger databases. | L      |
+| User and privilege management | Admin tasks HeidiSQL covers.  | L      |
+| macOS and Linux builds        | Only Windows has been run.    | M      |
 
 ## Done
 
+- Routines, events and triggers in the SQL dump, table designer with primary key, column order (MySQL, MariaDB), comments and foreign keys, server variables and status, and a split frontend bundle. Tested against MySQL, MariaDB and PostgreSQL 17 and 18.
+- SQL dump with restore tested on MySQL, MariaDB and PostgreSQL, error explanations by error code, drag and drop into groups, snippets, execution plans, find and replace in table data and configurable shortcuts.
 - Functions, procedures, triggers, events and sequences in the schema tree with DDL and delete, foreign key navigation from a cell, full export without the row buffer limit, and CSV import with column mapping. Tested against MySQL, MariaDB and PostgreSQL 17 and 18.
 - Table designer for columns, defaults, auto increment and indexes, and for new tables with a primary key. MySQL keeps collation, comment and `ON UPDATE`, PostgreSQL runs everything in one transaction. Tested against MySQL, MariaDB and PostgreSQL 17 and 18.
 - SQL formatter (Shift+Alt+F), process list with cancel and end connection, and a JSON view in the cell editor that never rewrites numbers or strings.

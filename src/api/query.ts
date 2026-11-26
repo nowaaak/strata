@@ -1,4 +1,7 @@
 import { Channel } from "@tauri-apps/api/core";
+import type { DumpOptions } from "@/bindings/DumpOptions";
+import type { DumpProgress } from "@/bindings/DumpProgress";
+import type { DumpSummary } from "@/bindings/DumpSummary";
 import type { ExportSource } from "@/bindings/ExportSource";
 import type { ExportSummary } from "@/bindings/ExportSummary";
 import type { ExportFormat } from "@/bindings/ExportFormat";
@@ -93,3 +96,28 @@ export const exportFull = (
 
 export const cancelExport = (sessionId: string, exportId: string) =>
     call<void>("cancel_export", { sessionId, exportId });
+
+export const explainQuery = (
+    sessionId: string,
+    database: string | null,
+    sql: string,
+    analyze: boolean,
+) => call<string>("explain_query", { sessionId, database, sql, analyze });
+
+export const dumpDatabase = (
+    sessionId: string,
+    exportId: string,
+    options: DumpOptions,
+    path: string,
+    onProgress: (progress: DumpProgress) => void,
+) => {
+    const progress = new Channel<DumpProgress>();
+    progress.onmessage = onProgress;
+    return call<DumpSummary>("dump_database", {
+        sessionId,
+        exportId,
+        options,
+        path,
+        onProgress: progress,
+    });
+};

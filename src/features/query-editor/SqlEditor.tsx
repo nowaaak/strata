@@ -23,6 +23,8 @@ import {
 import { useEffect, useMemo, useRef } from "react";
 import type { Engine } from "@/bindings/Engine";
 import { useSettings } from "@/features/settings/useSettings";
+import { useShortcuts } from "@/features/settings/useShortcuts";
+import { toCodeMirror, type ShortcutMap } from "@/lib/shortcuts";
 import { getT, useT } from "@/i18n";
 import { editorTheme } from "./editorTheme";
 
@@ -87,6 +89,37 @@ function language(
     });
 }
 
+function editorKeymap(shortcuts: ShortcutMap, latest: { current: SqlEditorProps }) {
+    const bind = (combo: string, run: () => boolean) => ({
+        key: toCodeMirror(combo),
+        preventDefault: true,
+        run,
+    });
+    return Prec.highest(
+        keymap.of([
+            bind(shortcuts.run, () => {
+                latest.current.onRunCurrent?.();
+                return true;
+            }),
+            bind(shortcuts.runAll, () => {
+                latest.current.onRunAll?.();
+                return true;
+            }),
+            bind(shortcuts.cancel, () => {
+                latest.current.onCancel?.();
+                return true;
+            }),
+            bind(shortcuts.format, () => {
+                if (latest.current.readOnly || !latest.current.onFormat) {
+                    return false;
+                }
+                latest.current.onFormat();
+                return true;
+            }),
+        ]),
+    );
+}
+
 type SqlEditorProps = {
     initialValue: string;
     engine: Engine;
@@ -109,6 +142,9 @@ export function SqlEditor(props: SqlEditorProps) {
     const languageSlot = useMemo(() => new Compartment(), []);
     const wrapSlot = useMemo(() => new Compartment(), []);
     const placeholderSlot = useMemo(() => new Compartment(), []);
+    const keymapSlot = useMemo(() => new Compartment(), []);
+    const shortcuts = useShortcuts();
+    const initialShortcuts = useRef(shortcuts);
     const placeholderText = useT().query.placeholder;
     const wordWrap = useSettings().data?.editorWordWrap ?? false;
     const initialWrap = useRef(wordWrap);
@@ -124,51 +160,12 @@ export function SqlEditor(props: SqlEditorProps) {
             return;
         }
         const initial = latest.current;
-        const shortcuts = Prec.highest(
-            keymap.of([
-                {
-                    key: "Mod-Enter",
-                    preventDefault: true,
-                    run: () => {
-                        latest.current.onRunCurrent?.();
-                        return true;
-                    },
-                },
-                {
-                    key: "Mod-Shift-Enter",
-                    preventDefault: true,
-                    run: () => {
-                        latest.current.onRunAll?.();
-                        return true;
-                    },
-                },
-                {
-                    key: "Mod-.",
-                    preventDefault: true,
-                    run: () => {
-                        latest.current.onCancel?.();
-                        return true;
-                    },
-                },
-                {
-                    key: "Shift-Alt-f",
-                    preventDefault: true,
-                    run: () => {
-                        if (latest.current.readOnly || !latest.current.onFormat) {
-                            return false;
-                        }
-                        latest.current.onFormat();
-                        return true;
-                    },
-                },
-            ]),
-        );
         const editor = new EditorView({
             parent,
             state: EditorState.create({
                 doc: initial.initialValue,
                 extensions: [
-                    shortcuts,
+                    keymapSlot.of(editorKeymap(initialShortcuts.current, latest)),
                     lineNumbers(),
                     highlightActiveLineGutter(),
                     history(),
@@ -214,7 +211,13 @@ export function SqlEditor(props: SqlEditorProps) {
             view.current = null;
             editor.destroy();
         };
-    }, [languageSlot, wrapSlot, placeholderSlot]);
+    }, [languageSlot, wrapSlot, placeholderSlot, keymapSlot]);
+
+    useEffect(() => {
+        view.current?.dispatch({
+            effects: keymapSlot.reconfigure(editorKeymap(shortcuts, latest)),
+        });
+    }, [keymapSlot, shortcuts]);
 
     useEffect(() => {
         view.current?.dispatch({
