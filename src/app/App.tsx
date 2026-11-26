@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConnectionDialog } from "@/features/connections/ConnectionDialog";
@@ -11,6 +12,7 @@ import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { useApplySettings, useResolvedTheme } from "@/features/settings/useThemeSync";
 import { useWorkspaceStartup } from "@/features/workspace/persistence";
 import { AppLayout } from "./AppLayout";
+import { installBrowserGuards } from "./browserGuards";
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -34,6 +36,7 @@ export function App() {
 function AppShell() {
     const theme = useResolvedTheme();
     useApplySettings();
+    useEffect(() => (import.meta.env.PROD ? installBrowserGuards() : undefined), []);
     useWorkspaceStartup();
 
     return (
