@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { ConnectionProfile } from "@/bindings/ConnectionProfile";
+import type { DdlAction } from "@/bindings/DdlAction";
 
 export type ConnectionDialogState =
     { mode: "create"; group?: string | null } | { mode: "edit"; profile: ConnectionProfile } | null;
@@ -31,8 +32,12 @@ export type HostKeyPrompt = {
     password: string | null;
 } | null;
 
+export type StructureRequest = { sessionId: string; action: DdlAction } | null;
+
 type UiState = {
     paletteOpen: boolean;
+    structureRequest: StructureRequest;
+    setStructureRequest: (request: StructureRequest) => void;
     historyDialog: HistoryDialogState;
     setHistoryDialog: (state: HistoryDialogState) => void;
     hostKeyPrompt: HostKeyPrompt;
@@ -57,6 +62,8 @@ type UiState = {
 
 export const useUiStore = create<UiState>((set, get) => ({
     paletteOpen: false,
+    structureRequest: null,
+    setStructureRequest: (structureRequest) => set({ structureRequest }),
     historyDialog: null,
     setHistoryDialog: (historyDialog) => set({ historyDialog, paletteOpen: false }),
     hostKeyPrompt: null,

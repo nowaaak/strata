@@ -8,6 +8,7 @@ import * as palette from "./modules/palette";
 import * as query from "./modules/query";
 import * as schema from "./modules/schema";
 import * as settings from "./modules/settings";
+import * as structure from "./modules/structure";
 import * as table from "./modules/table";
 
 const de = {
@@ -21,6 +22,7 @@ const de = {
     query: query.de,
     schema: schema.de,
     settings: settings.de,
+    structure: structure.de,
     table: table.de,
 };
 
@@ -37,6 +39,7 @@ const en: Messages = {
     query: query.en,
     schema: schema.en,
     settings: settings.en,
+    structure: structure.en,
     table: table.en,
 };
 

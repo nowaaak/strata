@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/context-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { SessionTree, TreeToggle } from "@/features/schema-tree/SchemaTree";
+import { requestStructure, SessionTree, TreeToggle } from "@/features/schema-tree/SchemaTree";
 import { sessionForProfile, useWorkspace } from "@/features/workspace/workspaceStore";
 import { getT, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -304,6 +304,18 @@ function ProfileNode({
                     >
                         {menuText.newQuery}
                     </ContextMenuItem>
+                    {!session.readOnly && (
+                        <ContextMenuItem
+                            onSelect={() =>
+                                requestStructure(session.sessionId, {
+                                    action: "create_database",
+                                    name: "",
+                                })
+                            }
+                        >
+                            {t.structure.menu.newDatabase}
+                        </ContextMenuItem>
+                    )}
                     <ContextMenuItem onSelect={() => void disconnect(session.sessionId)}>
                         {menuText.disconnect}
                     </ContextMenuItem>

@@ -14,8 +14,8 @@ use crate::profiles::{ConnectionProfile, Engine, PasswordUpdate, ProfileStore, S
 use crate::result::ResultSet;
 use crate::schema::{self, CompletionTable, DbObject, TableInfo, TableTarget};
 use crate::sql::{
-    Dialect, RowChange, SqlStatement, TableQuery, change_statement, select_statement,
-    split_statements,
+    DdlAction, Dialect, RowChange, SqlStatement, TableQuery, change_statement, ddl_statement,
+    select_statement, split_statements,
 };
 use crate::ssh::SshTunnel;
 use crate::{CoreError, CoreResult};
@@ -329,22 +329,9 @@ impl Session {
         let mut meta = self.meta.lock().await;
         let mut retried = false;
         loop {
-            let stale = meta.get(&key).is_none_or(Connection::is_closed);
-            if stale {
-                if let Some(old) = meta.remove(&key) {
-                    old.close().await;
-                }
-                let target = if self.dialect.is_mysql() {
-                    self.profile.database.clone()
-                } else {
-                    database.clone()
-                };
-                let conn = Connection::connect(&self.params(target)).await?;
-                meta.insert(key.clone(), conn);
-            }
-            let conn = meta.get_mut(&key).ok_or_else(|| {
-                CoreError::Connection("metadata connection is unavailable".into())
-            })?;
+            let conn = self
+                .meta_connection(&mut meta, &key, database.as_deref())
+                .await?;
             match conn.query_rows(sql).await {
                 Ok(rows) => return Ok(rows),
                 Err(err) if err.connection_lost && !retried => {
@@ -353,6 +340,96 @@ impl Session {
                 }
                 Err(err) => return Err(err.into()),
             }
+        }
+    }
+
+    async fn meta_connection<'a>(
+        &self,
+        meta: &'a mut HashMap<String, Connection>,
+        key: &str,
+        database: Option<&str>,
+    ) -> CoreResult<&'a mut Connection> {
+        if meta.get(key).is_none_or(Connection::is_closed) {
+            if let Some(old) = meta.remove(key) {
+                old.close().await;
+            }
+            let target = if self.dialect.is_mysql() {
+                self.profile.database.clone()
+            } else {
+                database.map(str::to_string)
+            };
+            let conn = Connection::connect(&self.params(target)).await?;
+            meta.insert(key.to_string(), conn);
+        }
+        meta.get_mut(key)
+            .ok_or_else(|| CoreError::Connection("metadata connection is unavailable".into()))
+    }
+
+    pub fn preview_ddl(&self, action: &DdlAction) -> CoreResult<String> {
+        ddl_statement(self.dialect, action)
+    }
+
+    pub async fn run_ddl(&self, action: &DdlAction) -> CoreResult<String> {
+        if self.read_only() {
+            return Err(CoreError::ReadOnly(
+                "this connection is read-only, the structure cannot be changed".into(),
+            ));
+        }
+        let sql = ddl_statement(self.dialect, action)?;
+        let affected = action
+            .affected_database()
+            .filter(|_| !self.dialect.is_mysql());
+        let database = match affected {
+            Some(affected) => Some(self.maintenance_database(affected)),
+            None => action
+                .working_database()
+                .map(str::to_string)
+                .or_else(|| self.details.database.clone()),
+        };
+        let key = meta_key(self.dialect, database.as_deref());
+        if let Some(affected) = affected {
+            self.release_database(affected).await;
+        }
+        let mut meta = self.meta.lock().await;
+        if let Some(affected) = affected
+            && let Some(conn) = meta.remove(affected)
+        {
+            conn.close().await;
+        }
+        let conn = self
+            .meta_connection(&mut meta, &key, database.as_deref())
+            .await?;
+        match conn.execute(&sql).await {
+            Ok(_) => Ok(sql),
+            Err(err) => {
+                if err.connection_lost {
+                    meta.remove(&key);
+                }
+                Err(err.into())
+            }
+        }
+    }
+
+    async fn release_database(&self, database: &str) {
+        let tabs: Vec<Arc<Tab>> = lock(&self.tabs).values().cloned().collect();
+        for tab in tabs {
+            let Ok(mut slot) = tab.conn.try_lock() else {
+                continue;
+            };
+            let connected = slot
+                .as_ref()
+                .is_some_and(|conn| conn.details().database.as_deref() == Some(database));
+            if connected && let Some(conn) = slot.take() {
+                conn.close().await;
+            }
+        }
+    }
+
+    fn maintenance_database(&self, affected: &str) -> String {
+        match self.details.database.as_deref() {
+            Some(current) if current != affected => current.to_string(),
+            _ if affected == "postgres" => "template1".to_string(),
+            _ => "postgres".to_string(),
         }
     }
 

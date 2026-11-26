@@ -86,6 +86,8 @@ pub fn run() {
             commands::query::close_tab,
             commands::query::fetch_rows,
             commands::query::export_result,
+            commands::ddl::preview_ddl,
+            commands::ddl::run_ddl,
             commands::edit::preview_changes,
             commands::edit::apply_changes,
             commands::workspace::load_workspace,

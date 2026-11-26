@@ -1,3 +1,4 @@
+pub mod ddl;
 pub mod edit;
 pub mod history;
 pub mod profiles;

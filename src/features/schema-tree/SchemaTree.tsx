@@ -13,6 +13,7 @@ import { errorMessage } from "@/api/invoke";
 import { listDatabases, listObjects, listSchemas, tableDdl } from "@/api/schema";
 import { treeKey, useUiStore } from "@/app/uiStore";
 import type { DbObject } from "@/bindings/DbObject";
+import type { DdlAction } from "@/bindings/DdlAction";
 import type { SessionInfo } from "@/bindings/SessionInfo";
 import type { TableTarget } from "@/bindings/TableTarget";
 import {
@@ -22,6 +23,7 @@ import {
     ContextMenuSeparator,
     ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { createTableTemplate } from "@/features/structure/actions";
 import { useWorkspace } from "@/features/workspace/workspaceStore";
 import { getT, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -114,6 +116,25 @@ function useExpanded(key: string): [boolean, () => void] {
     return [expanded, toggle];
 }
 
+export function requestStructure(sessionId: string, action: DdlAction) {
+    useUiStore.getState().setStructureRequest({ sessionId, action });
+}
+
+function openCreateTable(session: SessionInfo, database: string, schema: string | null) {
+    useWorkspace
+        .getState()
+        .openQueryTab(
+            session.sessionId,
+            database,
+            createTableTemplate(
+                session.engine,
+                database,
+                schema,
+                getT().structure.tableTemplateName,
+            ),
+        );
+}
+
 async function copyText(text: string, what: string) {
     try {
         await navigator.clipboard.writeText(text);
@@ -189,6 +210,52 @@ function DatabaseNode({
             <ContextMenuItem onSelect={() => void copyText(database, t.schema.name)}>
                 {t.schema.copyName}
             </ContextMenuItem>
+            {!session.readOnly && (
+                <>
+                    <ContextMenuSeparator />
+                    {postgres ? (
+                        <ContextMenuItem
+                            onSelect={() =>
+                                requestStructure(session.sessionId, {
+                                    action: "create_schema",
+                                    database,
+                                    name: "",
+                                })
+                            }
+                        >
+                            {t.structure.menu.newSchema}
+                        </ContextMenuItem>
+                    ) : (
+                        <ContextMenuItem onSelect={() => openCreateTable(session, database, null)}>
+                            {t.structure.menu.newTable}
+                        </ContextMenuItem>
+                    )}
+                    {postgres && (
+                        <ContextMenuItem
+                            onSelect={() =>
+                                requestStructure(session.sessionId, {
+                                    action: "rename_database",
+                                    database,
+                                    to: database,
+                                })
+                            }
+                        >
+                            {t.structure.menu.rename}
+                        </ContextMenuItem>
+                    )}
+                    <ContextMenuItem
+                        variant="destructive"
+                        onSelect={() =>
+                            requestStructure(session.sessionId, {
+                                action: "drop_database",
+                                database,
+                            })
+                        }
+                    >
+                        {t.structure.menu.drop}
+                    </ContextMenuItem>
+                </>
+            )}
         </>
     );
 
@@ -277,7 +344,64 @@ function SchemaNode({
     schema: string;
     level: number;
 }) {
+    const t = useT();
+    const queryClient = useQueryClient();
     const [expanded, toggle] = useExpanded(treeKey.schema(session.sessionId, database, schema));
+    const menu = (
+        <>
+            <ContextMenuItem
+                onSelect={() => useWorkspace.getState().openQueryTab(session.sessionId, database)}
+            >
+                {t.schema.newQueryHere}
+            </ContextMenuItem>
+            <ContextMenuItem
+                onSelect={() =>
+                    void queryClient.invalidateQueries({
+                        queryKey: ["objects", session.sessionId, database, schema],
+                    })
+                }
+            >
+                {t.schema.refresh}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => void copyText(schema, t.schema.name)}>
+                {t.schema.copyName}
+            </ContextMenuItem>
+            {!session.readOnly && (
+                <>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onSelect={() => openCreateTable(session, database, schema)}>
+                        {t.structure.menu.newTable}
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                        onSelect={() =>
+                            requestStructure(session.sessionId, {
+                                action: "rename_schema",
+                                database,
+                                schema,
+                                to: schema,
+                            })
+                        }
+                    >
+                        {t.structure.menu.rename}
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                        variant="destructive"
+                        onSelect={() =>
+                            requestStructure(session.sessionId, {
+                                action: "drop_schema",
+                                database,
+                                schema,
+                                cascade: false,
+                            })
+                        }
+                    >
+                        {t.structure.menu.drop}
+                    </ContextMenuItem>
+                </>
+            )}
+        </>
+    );
     return (
         <>
             <TreeToggle
@@ -285,6 +409,7 @@ function SchemaNode({
                 level={level}
                 expanded={expanded}
                 onToggle={toggle}
+                menu={menu}
                 icon={
                     <FolderTreeIcon
                         aria-hidden
@@ -424,6 +549,48 @@ function ObjectNode({
                 >
                     {t.schema.copyDdl}
                 </ContextMenuItem>
+                {!session.readOnly && (
+                    <>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem
+                            onSelect={() =>
+                                requestStructure(session.sessionId, {
+                                    action: "rename_object",
+                                    target,
+                                    kind: object.kind,
+                                    to: object.name,
+                                })
+                            }
+                        >
+                            {t.structure.menu.rename}
+                        </ContextMenuItem>
+                        {object.kind === "table" && (
+                            <ContextMenuItem
+                                variant="destructive"
+                                onSelect={() =>
+                                    requestStructure(session.sessionId, {
+                                        action: "truncate_table",
+                                        target,
+                                    })
+                                }
+                            >
+                                {t.structure.menu.truncate}
+                            </ContextMenuItem>
+                        )}
+                        <ContextMenuItem
+                            variant="destructive"
+                            onSelect={() =>
+                                requestStructure(session.sessionId, {
+                                    action: "drop_object",
+                                    target,
+                                    kind: object.kind,
+                                })
+                            }
+                        >
+                            {t.structure.menu.drop}
+                        </ContextMenuItem>
+                    </>
+                )}
             </ContextMenuContent>
         </ContextMenu>
     );

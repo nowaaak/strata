@@ -1,9 +1,11 @@
+mod ddl;
 mod edit;
 mod lexer;
 mod quote;
 mod split;
 mod table;
 
+pub use ddl::{DdlAction, ddl_statement};
 pub use edit::{CellValue, RowChange, change_statement};
 pub use split::{SqlStatement, is_write, split_statements};
 pub use table::{SortSpec, TableQuery, select_statement};

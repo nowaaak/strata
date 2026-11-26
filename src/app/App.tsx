@@ -3,6 +3,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConnectionDialog } from "@/features/connections/ConnectionDialog";
 import { HostKeyDialog } from "@/features/connections/HostKeyDialog";
+import { StructureDialog } from "@/features/structure/StructureDialog";
 import { PasswordDialog } from "@/features/connections/PasswordDialog";
 import { CommandPalette } from "@/features/palette/CommandPalette";
 import { HistoryDialog } from "@/features/history/HistoryDialog";
@@ -41,6 +42,7 @@ function AppShell() {
             <ConnectionDialog />
             <PasswordDialog />
             <HostKeyDialog />
+            <StructureDialog />
             <CommandPalette />
             <SettingsDialog />
             <HistoryDialog />

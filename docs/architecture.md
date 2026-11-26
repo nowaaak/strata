@@ -58,6 +58,14 @@ Host keys follow trust on first use. The profile stores the SHA256 fingerprint o
 
 The SSH password or key passphrase is a second keyring entry (`{profile id}#ssh`), separate from the database password. Key files are read from disk on every connect and never copied. Integration tests in `crates/strata-core/tests/ssh.rs` run against the `ssh` service from `docker-compose.test.yml`.
 
+## Structure changes
+
+`DdlAction` describes one change: create, rename or drop a database or PostgreSQL schema, rename or drop a table or view, or truncate a table. `sql::ddl_statement` turns it into exactly one statement with quoted identifiers and rejects empty names, names with leading or trailing spaces and control characters. The dialog asks the backend for this statement as a preview, and `run_ddl` generates it again from the same action, so the SQL shown is the SQL that runs. MySQL cannot rename databases and has no schemas inside a database, so those actions fail with `invalid_input`.
+
+Changes run on the metadata connection, never in a tab, so they cannot end up inside an open transaction of a query tab. Read-only profiles are refused before anything is sent. PostgreSQL cannot drop or rename a database while it is in use, so Strata first closes its own idle connections to that database and runs the statement from another one: the session database, or `postgres` (`template1` when the target is `postgres`). Connections of other clients still block it, and the server error says so. Every change is written to the query history.
+
+Creating a table opens a query tab with a `CREATE TABLE` template instead of a form. A column editor belongs to the planned schema editor.
+
 ## Editing
 
 Edits are only possible when the table has a primary key or a unique key without nullable columns. Rows are identified by the original key values. The backend validates that every change uses exactly that key, generates literal SQL with dialect escaping and runs everything in one transaction. Each statement must affect exactly one row, otherwise everything is rolled back. The SQL shown in the review dialog is the SQL that runs.

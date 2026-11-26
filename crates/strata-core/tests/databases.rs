@@ -8,7 +8,7 @@ use strata_core::profiles::{
 use strata_core::schema::{ObjectKind, TableTarget};
 use strata_core::secrets::MemorySecretStore;
 use strata_core::session::{QUERY_ROW_CAP, QueryEvent, Session, SessionManager, StatementOutcome};
-use strata_core::sql::{CellValue, RowChange, SortSpec, TableQuery};
+use strata_core::sql::{CellValue, DdlAction, RowChange, SortSpec, TableQuery};
 
 #[derive(Clone, Copy)]
 struct Server {
@@ -525,4 +525,226 @@ async fn mysql_read_only() {
 #[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
 async fn postgres_read_only() {
     read_only(POSTGRES, "it_ro_postgres").await;
+}
+
+async fn run_in(session: &Session, tab: &str, database: &str, sql: &str) -> Vec<QueryEvent> {
+    let events = Mutex::new(Vec::new());
+    let emit = |event: QueryEvent| events.lock().unwrap().push(event);
+    session
+        .execute(tab, Some(database), sql, QUERY_ROW_CAP, &emit)
+        .await
+        .unwrap();
+    let events = events.into_inner().unwrap();
+    assert_eq!(failure(&events), None, "{sql}");
+    events
+}
+
+async fn object_names(session: &Session, database: &str, schema: Option<&str>) -> Vec<String> {
+    session
+        .list_objects(database, schema)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|object| object.name)
+        .collect()
+}
+
+async fn structure(server: Server, prefix: &str) {
+    let harness = open(server, Safety::Normal).await;
+    let session = &harness.session;
+    let postgres = server.engine == Engine::Postgres;
+    let database = format!("{prefix} neu");
+    let _ = session
+        .run_ddl(&DdlAction::DropDatabase {
+            database: database.clone(),
+        })
+        .await;
+
+    session
+        .run_ddl(&DdlAction::CreateDatabase {
+            name: database.clone(),
+        })
+        .await
+        .unwrap();
+    assert!(session.list_databases().await.unwrap().contains(&database));
+
+    let schema = if postgres {
+        session
+            .run_ddl(&DdlAction::CreateSchema {
+                database: database.clone(),
+                name: "archiv".into(),
+            })
+            .await
+            .unwrap();
+        Some("archiv".to_string())
+    } else {
+        None
+    };
+    let table = |name: &str| TableTarget {
+        database: database.clone(),
+        schema: schema.clone(),
+        table: name.into(),
+    };
+    let prefix_sql = if postgres { "archiv." } else { "" };
+    run_in(
+        session,
+        "ddl",
+        &database,
+        &format!(
+            "CREATE TABLE {prefix_sql}orders (id int PRIMARY KEY); INSERT INTO {prefix_sql}orders VALUES (1), (2); CREATE VIEW {prefix_sql}v_orders AS SELECT id FROM {prefix_sql}orders"
+        ),
+    )
+    .await;
+    assert_eq!(
+        object_names(session, &database, schema.as_deref()).await,
+        ["orders", "v_orders"]
+    );
+
+    let sql = session
+        .run_ddl(&DdlAction::TruncateTable {
+            target: table("orders"),
+        })
+        .await
+        .unwrap();
+    assert!(sql.starts_with("TRUNCATE TABLE"), "{sql}");
+    run_in(
+        session,
+        "count",
+        &database,
+        &format!("SELECT COUNT(*) FROM {prefix_sql}orders"),
+    )
+    .await;
+    assert_eq!(
+        session.fetch_rows("count", 0, 0, 1).unwrap()[0][0].as_deref(),
+        Some("0")
+    );
+
+    session
+        .run_ddl(&DdlAction::RenameObject {
+            target: table("v_orders"),
+            kind: ObjectKind::View,
+            to: "Bestellungen Ansicht".into(),
+        })
+        .await
+        .unwrap();
+    session
+        .run_ddl(&DdlAction::DropObject {
+            target: table("Bestellungen Ansicht"),
+            kind: ObjectKind::View,
+        })
+        .await
+        .unwrap();
+    session
+        .run_ddl(&DdlAction::RenameObject {
+            target: table("orders"),
+            kind: ObjectKind::Table,
+            to: "orders_alt".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        object_names(session, &database, schema.as_deref()).await,
+        ["orders_alt"]
+    );
+    session
+        .run_ddl(&DdlAction::DropObject {
+            target: table("orders_alt"),
+            kind: ObjectKind::Table,
+        })
+        .await
+        .unwrap();
+    assert!(
+        object_names(session, &database, schema.as_deref())
+            .await
+            .is_empty()
+    );
+
+    let final_name = if postgres {
+        session
+            .run_ddl(&DdlAction::RenameSchema {
+                database: database.clone(),
+                schema: "archiv".into(),
+                to: "alt".into(),
+            })
+            .await
+            .unwrap();
+        assert!(
+            session
+                .list_schemas(&database)
+                .await
+                .unwrap()
+                .contains(&"alt".to_string())
+        );
+        session
+            .run_ddl(&DdlAction::DropSchema {
+                database: database.clone(),
+                schema: "alt".into(),
+                cascade: false,
+            })
+            .await
+            .unwrap();
+        let renamed = format!("{prefix} umbenannt");
+        let _ = session
+            .run_ddl(&DdlAction::DropDatabase {
+                database: renamed.clone(),
+            })
+            .await;
+        session
+            .run_ddl(&DdlAction::RenameDatabase {
+                database: database.clone(),
+                to: renamed.clone(),
+            })
+            .await
+            .unwrap();
+        run_in(session, "ddl", &renamed, "SELECT 1").await;
+        renamed
+    } else {
+        let err = session
+            .run_ddl(&DdlAction::RenameDatabase {
+                database: database.clone(),
+                to: "x".into(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), "invalid_input");
+        database.clone()
+    };
+
+    session
+        .run_ddl(&DdlAction::DropDatabase {
+            database: final_name.clone(),
+        })
+        .await
+        .unwrap();
+    let databases = session.list_databases().await.unwrap();
+    assert!(!databases.contains(&final_name), "{databases:?}");
+    assert!(!databases.contains(&database), "{databases:?}");
+
+    let reader = open(server, Safety::ReadOnly).await;
+    let err = reader
+        .session
+        .run_ddl(&DdlAction::CreateDatabase {
+            name: format!("{prefix} nie"),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), "read_only");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_structure() {
+    structure(MYSQL, "it_ddl_mysql").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_structure() {
+    structure(MARIADB, "it_ddl_mariadb").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_structure() {
+    structure(POSTGRES, "it_ddl_postgres").await;
 }

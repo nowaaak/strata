@@ -12,6 +12,7 @@ A fast, modern desktop client for MySQL, MariaDB and PostgreSQL. Built with Taur
 - Virtualized result grid that streams up to one million rows, range selection, copy as TSV, resizable columns
 - Table view with WHERE filter, sorting, row limit, structure and DDL
 - Inline editing with insert and delete. Changes are previewed as SQL and saved in one transaction that rolls back unless every statement hits exactly one row
+- Create, rename, empty and delete databases, PostgreSQL schemas, tables and views from the schema tree. Every change shows the exact SQL first, deleting a database asks for its name, and a new table starts from a SQL template
 - Export to CSV and JSON
 - Command palette (Ctrl+K) for tables, connections and actions
 - Searchable query history (Ctrl+H) and tabs with SQL drafts that survive a restart
