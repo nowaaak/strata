@@ -72,7 +72,7 @@ impl DdlAction {
     }
 }
 
-fn name(value: &str) -> CoreResult<&str> {
+pub(crate) fn name(value: &str) -> CoreResult<&str> {
     if value.trim().is_empty() {
         return Err(CoreError::InvalidInput("the name must not be empty".into()));
     }
@@ -98,7 +98,7 @@ fn postgres_only(dialect: Dialect, what: &str) -> CoreResult<()> {
     Ok(())
 }
 
-fn target_names(target: &TableTarget) -> CoreResult<()> {
+pub(crate) fn target_names(target: &TableTarget) -> CoreResult<()> {
     name(&target.database)?;
     name(&target.table)?;
     if let Some(schema) = &target.schema {

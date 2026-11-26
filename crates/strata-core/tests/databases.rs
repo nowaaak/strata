@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use strata_core::design::{AlterOp, ColumnDef, DefaultValue, NewTable};
 use strata_core::driver::ColumnKind;
 use strata_core::processes::KillMode;
 use strata_core::profiles::{
@@ -875,4 +876,266 @@ async fn postgres_processes() {
 #[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
 async fn postgres_18_processes() {
     processes(POSTGRES_18).await;
+}
+
+fn column_def(name: &str, data_type: &str, nullable: bool, default: DefaultValue) -> ColumnDef {
+    ColumnDef {
+        name: name.into(),
+        data_type: data_type.into(),
+        nullable,
+        default,
+        auto_increment: false,
+    }
+}
+
+async fn designer(server: Server, table: &str) {
+    let harness = open(server, Safety::Normal).await;
+    let session = &harness.session;
+    let postgres = server.engine == Engine::Postgres;
+    let target = target(server, table);
+    let prefix = if postgres { "public." } else { "strata." };
+    run(
+        session,
+        "d",
+        &format!("DROP TABLE IF EXISTS {prefix}{table}"),
+        QUERY_ROW_CAP,
+    )
+    .await;
+
+    let statements = session
+        .apply_create(&NewTable {
+            target: target.clone(),
+            columns: vec![
+                ColumnDef {
+                    auto_increment: true,
+                    ..column_def(
+                        "id",
+                        if postgres { "bigint" } else { "int" },
+                        false,
+                        DefaultValue::None,
+                    )
+                },
+                column_def(
+                    "label",
+                    "varchar(50)",
+                    false,
+                    DefaultValue::Text {
+                        value: "neu".into(),
+                    },
+                ),
+            ],
+            primary_key: vec!["id".into()],
+        })
+        .await
+        .unwrap();
+    assert!(statements[0].starts_with("CREATE TABLE"), "{statements:?}");
+
+    if !postgres {
+        run_in(
+            session,
+            "d",
+            "strata",
+            &format!(
+                "ALTER TABLE {table} MODIFY label varchar(50) COLLATE utf8mb4_german2_ci NOT NULL DEFAULT 'neu' COMMENT 'Bezeichnung', ADD COLUMN changed timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+            ),
+        )
+        .await;
+    }
+    run_in(
+        session,
+        "d",
+        "strata",
+        &format!("INSERT INTO {prefix}{table} (label) VALUES ('Käse'), ('abc')"),
+    )
+    .await;
+
+    let design = session.table_design(&target).await.unwrap();
+    assert!(design.columns[0].auto_increment, "{design:?}");
+    assert!(
+        design
+            .indexes
+            .iter()
+            .any(|index| index.primary && index.columns == ["id"])
+    );
+
+    let ops = vec![
+        AlterOp::ChangeColumn {
+            name: "label".into(),
+            column: column_def("title", "varchar(120)", false, DefaultValue::Keep),
+        },
+        AlterOp::AddColumn {
+            column: column_def(
+                "note",
+                "text",
+                true,
+                DefaultValue::Text {
+                    value: "it's".into(),
+                },
+            ),
+        },
+        AlterOp::AddIndex {
+            name: format!("{table}_title"),
+            columns: vec!["title".into()],
+            unique: false,
+        },
+    ];
+    let preview = session.preview_alter(&target, &ops).await.unwrap();
+    let applied = session.apply_alter(&target, &ops).await.unwrap();
+    assert_eq!(preview, applied);
+
+    let design = session.table_design(&target).await.unwrap();
+    let title = design
+        .columns
+        .iter()
+        .find(|column| column.name == "title")
+        .unwrap_or_else(|| panic!("{design:?}"));
+    assert!(title.data_type.contains("120"), "{}", title.data_type);
+    assert!(!title.nullable);
+    assert!(
+        title
+            .default
+            .as_deref()
+            .is_some_and(|value| value.contains("neu")),
+        "{:?}",
+        title.default
+    );
+    if !postgres {
+        assert_eq!(title.collation.as_deref(), Some("utf8mb4_german2_ci"));
+        assert_eq!(title.comment.as_deref(), Some("Bezeichnung"));
+        let changed = design
+            .columns
+            .iter()
+            .find(|column| column.name == "changed")
+            .unwrap();
+        assert!(changed.on_update.is_some(), "{changed:?}");
+    }
+    assert!(
+        design
+            .indexes
+            .iter()
+            .any(|index| index.name == format!("{table}_title"))
+    );
+
+    run_in(
+        session,
+        "d",
+        "strata",
+        &format!("SELECT title, note FROM {prefix}{table} ORDER BY id"),
+    )
+    .await;
+    let rows = session.fetch_rows("d", 0, 0, 10).unwrap();
+    assert_eq!(rows[0][0].as_deref(), Some("Käse"));
+    assert_eq!(rows[0][1].as_deref(), Some("it's"));
+
+    if postgres {
+        let failing = vec![
+            AlterOp::AddColumn {
+                column: column_def("extra", "int", true, DefaultValue::None),
+            },
+            AlterOp::ChangeColumn {
+                name: "title".into(),
+                column: column_def("title", "integer", false, DefaultValue::Keep),
+            },
+        ];
+        let err = session.apply_alter(&target, &failing).await.unwrap_err();
+        assert_eq!(err.kind(), "database", "{err}");
+        let design = session.table_design(&target).await.unwrap();
+        assert!(
+            design.columns.iter().all(|column| column.name != "extra"),
+            "a failed change must roll back completely"
+        );
+    }
+
+    session
+        .apply_alter(
+            &target,
+            &[AlterOp::ChangeColumn {
+                name: "note".into(),
+                column: column_def("note", "text", false, DefaultValue::Keep),
+            }],
+        )
+        .await
+        .unwrap();
+    run_in(
+        session,
+        "d",
+        "strata",
+        &format!("INSERT INTO {prefix}{table} (title) VALUES ('kept default')"),
+    )
+    .await;
+    run_in(
+        session,
+        "d",
+        "strata",
+        &format!("SELECT note FROM {prefix}{table} WHERE title = 'kept default'"),
+    )
+    .await;
+    assert_eq!(
+        session.fetch_rows("d", 0, 0, 1).unwrap()[0][0].as_deref(),
+        Some("it's"),
+        "an unchanged default must survive a column change"
+    );
+
+    session
+        .apply_alter(
+            &target,
+            &[
+                AlterOp::DropIndex {
+                    name: format!("{table}_title"),
+                },
+                AlterOp::DropColumn {
+                    name: "note".into(),
+                },
+            ],
+        )
+        .await
+        .unwrap();
+    let design = session.table_design(&target).await.unwrap();
+    assert!(design.columns.iter().all(|column| column.name != "note"));
+    assert!(
+        design
+            .indexes
+            .iter()
+            .all(|index| index.name != format!("{table}_title"))
+    );
+
+    let reader = open(server, Safety::ReadOnly).await;
+    assert_eq!(
+        reader
+            .session
+            .apply_alter(
+                &target,
+                &[AlterOp::DropColumn {
+                    name: "title".into()
+                }]
+            )
+            .await
+            .unwrap_err()
+            .kind(),
+        "read_only"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_designer() {
+    designer(MYSQL, "it_design_mysql").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_designer() {
+    designer(MARIADB, "it_design_mariadb").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_designer() {
+    designer(POSTGRES, "it_design_postgres").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_18_designer() {
+    designer(POSTGRES_18, "it_design_postgres").await;
 }

@@ -14,6 +14,7 @@ A fast, modern desktop client for MySQL, MariaDB and PostgreSQL. Built with Taur
 - Inline editing with insert and delete. Changes are previewed as SQL and saved in one transaction that rolls back unless every statement hits exactly one row
 - JSON in the cell editor: highlighted, formatted or compact, checked while typing. Numbers and strings are never rewritten, and a value stored compact is saved compact again
 - Process list per connection with auto refresh, cancel a running query or end a connection
+- Table designer: add, rename, retype and drop columns, change NULL, defaults and auto increment, add and drop indexes, or create a new table with its primary key. Everything is shown as SQL before it runs
 - Create, rename, empty and delete databases, PostgreSQL schemas, tables and views from the schema tree. Every change shows the exact SQL first, deleting a database asks for its name, and a new table starts from a SQL template
 - Export to CSV and JSON
 - Command palette (Ctrl+K) for tables, connections and actions

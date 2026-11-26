@@ -64,7 +64,17 @@ The SSH password or key passphrase is a second keyring entry (`{profile id}#ssh`
 
 Changes run on the metadata connection, never in a tab, so they cannot end up inside an open transaction of a query tab. Read-only profiles are refused before anything is sent. PostgreSQL cannot drop or rename a database while it is in use, so Strata first closes its own idle connections to that database and runs the statement from another one: the session database, or `postgres` (`template1` when the target is `postgres`). Connections of other clients still block it, and the server error says so. Every change is written to the query history.
 
-Creating a table opens a query tab with a `CREATE TABLE` template instead of a form. A column editor belongs to the planned schema editor.
+New tables are created in the table designer. A `CREATE TABLE` template in a query tab stays available for everything the designer does not cover.
+
+## Table designer
+
+`design.rs` reads the full column and index definitions (`table_design`) and turns a list of `AlterOp`s or a `NewTable` into SQL. The backend reads the current structure itself for every preview and run, so the frontend only describes what changes.
+
+MySQL and MariaDB need the complete column definition in `CHANGE COLUMN`. Anything left out is reset silently, so Strata adds the current collation (for text types), `ON UPDATE`, `AUTO_INCREMENT` and the comment from `information_schema`. A default the user did not touch is `DefaultValue::Keep` and is rebuilt from the catalog: MariaDB reports defaults as SQL and they are reused as they are, MySQL reports plain literals (quoted again) and, for expression defaults, backslash escaped text that is unescaped and wrapped in parentheses. Text defaults on `TEXT`, `BLOB`, `JSON` and geometry columns are written as `('value')`, because MySQL only accepts expressions there. All MySQL changes go into one `ALTER TABLE`.
+
+On PostgreSQL only what changed is emitted (rename, `TYPE ... USING col::type`, `SET`/`DROP NOT NULL`, `SET`/`DROP DEFAULT`, identity) and all statements run in one transaction on the metadata connection, so a failing step changes nothing. Indexes backed by a constraint are dropped with `DROP CONSTRAINT`.
+
+Data types and default expressions are SQL fragments by design. They are rejected when they contain `;` or comment markers. Generated columns can only be dropped, and expression or partial indexes only deleted. Every change is written to the query history.
 
 ## Process list
 

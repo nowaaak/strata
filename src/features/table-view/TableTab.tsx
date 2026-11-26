@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { applyChanges, previewChanges } from "@/api/edit";
 import { errorMessage } from "@/api/invoke";
 import { describeTable, tableDdl } from "@/api/schema";
+import { useUiStore } from "@/app/uiStore";
 import type { SortSpec } from "@/bindings/SortSpec";
 import { Button } from "@/components/ui/button";
 import {
@@ -314,7 +315,19 @@ export function TableTab({ tab }: { tab: Attached<TableTabModel> }) {
             <div className="min-h-0 flex-1">
                 {view === "structure" &&
                     (info.data ? (
-                        <StructureView info={info.data} />
+                        <StructureView
+                            info={info.data}
+                            onEdit={
+                                session && !session.readOnly
+                                    ? () =>
+                                          useUiStore.getState().setDesignerRequest({
+                                              mode: "edit",
+                                              sessionId: tab.sessionId,
+                                              target: tab.target,
+                                          })
+                                    : undefined
+                            }
+                        />
                     ) : (
                         <p className="p-4 text-sm text-muted-foreground">
                             {info.isError ? errorMessage(info.error) : text.loadingStructure}

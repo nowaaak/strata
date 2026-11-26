@@ -6,14 +6,13 @@ Effort: S is up to a day, M a few days, L a week or more.
 
 Goal: the everyday HeidiSQL tasks work without falling back to another tool.
 
-| Item                                                             | Why                                                                      | Effort |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------ | ------ |
-| Schema editor with generated `ALTER TABLE` and preview           | Adding a column or index is a common task and easy to get wrong by hand. | L      |
-| Views, routines, triggers and events in the tree, with their DDL | The tree only shows tables and views.                                    | M      |
-| Foreign key navigation from a cell to the referenced row         | Speeds up exploring related data.                                        | M      |
-| Import CSV into a table with column mapping                      | Common data task, HeidiSQL has it.                                       | M      |
-| SQL dump export of tables or a database                          | Backups and moving data between servers.                                 | L      |
-| Export the full query result, not only the buffered rows         | Exports stop at the one million row buffer.                              | M      |
+| Item                                                             | Why                                         | Effort |
+| ---------------------------------------------------------------- | ------------------------------------------- | ------ |
+| Views, routines, triggers and events in the tree, with their DDL | The tree only shows tables and views.       | M      |
+| Foreign key navigation from a cell to the referenced row         | Speeds up exploring related data.           | M      |
+| Import CSV into a table with column mapping                      | Common data task, HeidiSQL has it.          | M      |
+| SQL dump export of tables or a database                          | Backups and moving data between servers.    | L      |
+| Export the full query result, not only the buffered rows         | Exports stop at the one million row buffer. | M      |
 
 ## 2. Comfort
 
@@ -28,17 +27,19 @@ Goal: the everyday HeidiSQL tasks work without falling back to another tool.
 
 ## 3. Later
 
-| Item                          | Why                                                                             | Effort |
-| ----------------------------- | ------------------------------------------------------------------------------- | ------ |
-| SQLite support                | Local files without a server.                                                   | L      |
-| ER diagram of a schema        | Overview of larger databases.                                                   | L      |
-| User and privilege management | Admin tasks HeidiSQL covers.                                                    | L      |
-| Server variables and status   | Tuning and diagnosis.                                                           | M      |
-| Split the frontend bundle     | The bundle is about 1 MB. Fine locally, but it delays the first paint a little. | S      |
-| macOS and Linux builds        | Only Windows has been run.                                                      | M      |
+| Item                                                                            | Why                                                                             | Effort |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ------ |
+| Table designer: change the primary key, column order, comments and foreign keys | The first version covers columns, defaults and plain indexes.                   | M      |
+| SQLite support                                                                  | Local files without a server.                                                   | L      |
+| ER diagram of a schema                                                          | Overview of larger databases.                                                   | L      |
+| User and privilege management                                                   | Admin tasks HeidiSQL covers.                                                    | L      |
+| Server variables and status                                                     | Tuning and diagnosis.                                                           | M      |
+| Split the frontend bundle                                                       | The bundle is about 1 MB. Fine locally, but it delays the first paint a little. | S      |
+| macOS and Linux builds                                                          | Only Windows has been run.                                                      | M      |
 
 ## Done
 
+- Table designer for columns, defaults, auto increment and indexes, and for new tables with a primary key. MySQL keeps collation, comment and `ON UPDATE`, PostgreSQL runs everything in one transaction. Tested against MySQL, MariaDB and PostgreSQL 17 and 18.
 - SQL formatter (Shift+Alt+F), process list with cancel and end connection, and a JSON view in the cell editor that never rewrites numbers or strings.
 - Integration tests also run against PostgreSQL 18.
 - Command durations in the log, to find slow steps in the installed app.

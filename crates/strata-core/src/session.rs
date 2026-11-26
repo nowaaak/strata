@@ -6,6 +6,7 @@ use std::time::Instant;
 use serde::Serialize;
 use ts_rs::TS;
 
+use crate::design::{self, AlterOp, NewTable, TableDesign};
 use crate::driver::{
     CancelHandle, ColumnMeta, ConnectParams, Connection, DbError, Row, RowSink, ServerDetails,
     SinkFlow,
@@ -432,6 +433,102 @@ impl Session {
             _ if affected == "postgres" => "template1".to_string(),
             _ => "postgres".to_string(),
         }
+    }
+
+    fn is_mariadb(&self) -> bool {
+        self.details.flavor == "MariaDB"
+    }
+
+    pub async fn table_design(&self, target: &TableTarget) -> CoreResult<TableDesign> {
+        let database = Some(target.database.as_str());
+        let columns = self
+            .meta_rows(database, &design::columns_sql(self.dialect, target))
+            .await?;
+        if columns.is_empty() {
+            return Err(CoreError::NotFound(format!(
+                "table {} does not exist",
+                target.table
+            )));
+        }
+        let indexes = self
+            .meta_rows(database, &design::indexes_sql(self.dialect, target))
+            .await?;
+        Ok(TableDesign {
+            columns: design::parse_columns(self.dialect, columns),
+            indexes: design::parse_indexes(indexes),
+        })
+    }
+
+    pub async fn preview_alter(
+        &self,
+        target: &TableTarget,
+        ops: &[AlterOp],
+    ) -> CoreResult<Vec<String>> {
+        let current = self.table_design(target).await?;
+        design::alter_statements(self.dialect, self.is_mariadb(), target, &current, ops)
+    }
+
+    pub async fn apply_alter(
+        &self,
+        target: &TableTarget,
+        ops: &[AlterOp],
+    ) -> CoreResult<Vec<String>> {
+        self.ensure_writable()?;
+        let statements = self.preview_alter(target, ops).await?;
+        self.run_structure(&target.database, &statements).await?;
+        Ok(statements)
+    }
+
+    pub fn preview_create(&self, table: &NewTable) -> CoreResult<Vec<String>> {
+        design::create_statements(self.dialect, self.is_mariadb(), table)
+    }
+
+    pub async fn apply_create(&self, table: &NewTable) -> CoreResult<Vec<String>> {
+        self.ensure_writable()?;
+        let statements = self.preview_create(table)?;
+        self.run_structure(&table.target.database, &statements)
+            .await?;
+        Ok(statements)
+    }
+
+    fn ensure_writable(&self) -> CoreResult<()> {
+        if self.read_only() {
+            return Err(CoreError::ReadOnly(
+                "this connection is read-only, the structure cannot be changed".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn run_structure(&self, database: &str, statements: &[String]) -> CoreResult<()> {
+        let key = meta_key(self.dialect, Some(database));
+        let mut meta = self.meta.lock().await;
+        let conn = self
+            .meta_connection(&mut meta, &key, Some(database))
+            .await?;
+        let transactional = !self.dialect.is_mysql() && statements.len() > 1;
+        if transactional {
+            conn.execute("BEGIN").await?;
+        }
+        for statement in statements {
+            if let Err(err) = conn.execute(statement).await {
+                let lost = err.connection_lost;
+                if transactional
+                    && !lost
+                    && let Err(rollback) = conn.execute("ROLLBACK").await
+                {
+                    tracing::warn!(error = %rollback.message, "rollback failed");
+                }
+                if lost {
+                    meta.remove(&key);
+                }
+                return Err(err.into());
+            }
+        }
+        if transactional {
+            conn.execute("COMMIT").await?;
+        }
+        Ok(())
     }
 
     pub async fn list_processes(&self) -> CoreResult<Vec<ProcessInfo>> {

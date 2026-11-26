@@ -226,9 +226,25 @@ function DatabaseNode({
                             {t.structure.menu.newSchema}
                         </ContextMenuItem>
                     ) : (
-                        <ContextMenuItem onSelect={() => openCreateTable(session, database, null)}>
-                            {t.structure.menu.newTable}
-                        </ContextMenuItem>
+                        <>
+                            <ContextMenuItem
+                                onSelect={() =>
+                                    useUiStore.getState().setDesignerRequest({
+                                        mode: "create",
+                                        sessionId: session.sessionId,
+                                        database,
+                                        schema: null,
+                                    })
+                                }
+                            >
+                                {t.designer.menuCreate}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                                onSelect={() => openCreateTable(session, database, null)}
+                            >
+                                {t.structure.menu.newTable}
+                            </ContextMenuItem>
+                        </>
                     )}
                     {postgres && (
                         <ContextMenuItem
@@ -370,6 +386,18 @@ function SchemaNode({
             {!session.readOnly && (
                 <>
                     <ContextMenuSeparator />
+                    <ContextMenuItem
+                        onSelect={() =>
+                            useUiStore.getState().setDesignerRequest({
+                                mode: "create",
+                                sessionId: session.sessionId,
+                                database,
+                                schema,
+                            })
+                        }
+                    >
+                        {t.designer.menuCreate}
+                    </ContextMenuItem>
                     <ContextMenuItem onSelect={() => openCreateTable(session, database, schema)}>
                         {t.structure.menu.newTable}
                     </ContextMenuItem>
@@ -552,6 +580,19 @@ function ObjectNode({
                 {!session.readOnly && (
                     <>
                         <ContextMenuSeparator />
+                        {object.kind === "table" && (
+                            <ContextMenuItem
+                                onSelect={() =>
+                                    useUiStore.getState().setDesignerRequest({
+                                        mode: "edit",
+                                        sessionId: session.sessionId,
+                                        target,
+                                    })
+                                }
+                            >
+                                {t.designer.menuEdit}
+                            </ContextMenuItem>
+                        )}
                         <ContextMenuItem
                             onSelect={() =>
                                 requestStructure(session.sessionId, {

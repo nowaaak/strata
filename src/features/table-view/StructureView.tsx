@@ -1,14 +1,23 @@
-import { KeyRoundIcon } from "lucide-react";
+import { KeyRoundIcon, PencilRulerIcon } from "lucide-react";
 import type { TableInfo } from "@/bindings/TableInfo";
+import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
 
-export function StructureView({ info }: { info: TableInfo }) {
+export function StructureView({ info, onEdit }: { info: TableInfo; onEdit?: () => void }) {
     const t = useT();
     const text = t.table.structure;
     const primary = new Set(info.keys.find((key) => key.primary)?.columns ?? []);
 
     return (
         <div className="h-full overflow-auto p-4">
+            {onEdit && (
+                <div className="mb-3 flex justify-end">
+                    <Button size="sm" variant="outline" onClick={onEdit}>
+                        <PencilRulerIcon />
+                        {t.designer.menuEdit}
+                    </Button>
+                </div>
+            )}
             <table className="w-full text-[12.5px]">
                 <caption className="pb-2 text-left text-[0.6875rem] font-semibold tracking-wider text-muted-foreground uppercase">
                     {text.columns}

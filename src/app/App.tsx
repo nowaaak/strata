@@ -6,6 +6,7 @@ import { ConnectionDialog } from "@/features/connections/ConnectionDialog";
 import { HostKeyDialog } from "@/features/connections/HostKeyDialog";
 import { StructureDialog } from "@/features/structure/StructureDialog";
 import { ProcessDialog } from "@/features/processes/ProcessDialog";
+import { TableDesigner } from "@/features/designer/TableDesigner";
 import { PasswordDialog } from "@/features/connections/PasswordDialog";
 import { CommandPalette } from "@/features/palette/CommandPalette";
 import { HistoryDialog } from "@/features/history/HistoryDialog";
@@ -48,6 +49,7 @@ function AppShell() {
             <HostKeyDialog />
             <StructureDialog />
             <ProcessDialog />
+            <TableDesigner />
             <CommandPalette />
             <SettingsDialog />
             <HistoryDialog />

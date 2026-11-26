@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ConnectionProfile } from "@/bindings/ConnectionProfile";
 import type { DdlAction } from "@/bindings/DdlAction";
+import type { TableTarget } from "@/bindings/TableTarget";
 
 export type ConnectionDialogState =
     { mode: "create"; group?: string | null } | { mode: "edit"; profile: ConnectionProfile } | null;
@@ -34,10 +35,17 @@ export type HostKeyPrompt = {
 
 export type StructureRequest = { sessionId: string; action: DdlAction } | null;
 
+export type DesignerRequest =
+    | { mode: "edit"; sessionId: string; target: TableTarget }
+    | { mode: "create"; sessionId: string; database: string; schema: string | null }
+    | null;
+
 type UiState = {
     paletteOpen: boolean;
     structureRequest: StructureRequest;
     setStructureRequest: (request: StructureRequest) => void;
+    designerRequest: DesignerRequest;
+    setDesignerRequest: (request: DesignerRequest) => void;
     processListSession: string | null;
     setProcessListSession: (sessionId: string | null) => void;
     historyDialog: HistoryDialogState;
@@ -66,6 +74,8 @@ export const useUiStore = create<UiState>((set, get) => ({
     paletteOpen: false,
     structureRequest: null,
     setStructureRequest: (structureRequest) => set({ structureRequest }),
+    designerRequest: null,
+    setDesignerRequest: (designerRequest) => set({ designerRequest, paletteOpen: false }),
     processListSession: null,
     setProcessListSession: (processListSession) => set({ processListSession, paletteOpen: false }),
     historyDialog: null,

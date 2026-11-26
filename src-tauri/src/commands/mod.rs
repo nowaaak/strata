@@ -1,4 +1,5 @@
 pub mod ddl;
+pub mod design;
 pub mod edit;
 pub mod history;
 pub mod processes;
