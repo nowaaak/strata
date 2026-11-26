@@ -32,6 +32,11 @@ const POSTGRES: Server = Server {
     port: 55432,
     user: "postgres",
 };
+const POSTGRES_18: Server = Server {
+    engine: Engine::Postgres,
+    port: 55418,
+    user: "postgres",
+};
 
 struct Harness {
     _dir: tempfile::TempDir,
@@ -747,4 +752,28 @@ async fn mariadb_structure() {
 #[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
 async fn postgres_structure() {
     structure(POSTGRES, "it_ddl_postgres").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_18_roundtrip() {
+    exercise(POSTGRES_18, "it_postgres").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_18_cancel() {
+    cancel(POSTGRES_18).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_18_read_only() {
+    read_only(POSTGRES_18, "it_ro_postgres").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_18_structure() {
+    structure(POSTGRES_18, "it_ddl_postgres").await;
 }
