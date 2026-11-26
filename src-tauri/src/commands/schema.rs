@@ -3,6 +3,7 @@ use tauri::State;
 
 use crate::error::CommandResult;
 use crate::state::AppState;
+use crate::timing::timed;
 
 #[tauri::command]
 pub async fn list_databases(
@@ -10,7 +11,7 @@ pub async fn list_databases(
     session_id: String,
 ) -> CommandResult<Vec<String>> {
     let session = state.sessions.get(&session_id)?;
-    Ok(session.list_databases().await?)
+    Ok(timed("list_databases", session.list_databases()).await?)
 }
 
 #[tauri::command]
@@ -20,7 +21,7 @@ pub async fn list_schemas(
     database: String,
 ) -> CommandResult<Vec<String>> {
     let session = state.sessions.get(&session_id)?;
-    Ok(session.list_schemas(&database).await?)
+    Ok(timed("list_schemas", session.list_schemas(&database)).await?)
 }
 
 #[tauri::command]
@@ -31,7 +32,11 @@ pub async fn list_objects(
     schema: Option<String>,
 ) -> CommandResult<Vec<DbObject>> {
     let session = state.sessions.get(&session_id)?;
-    Ok(session.list_objects(&database, schema.as_deref()).await?)
+    Ok(timed(
+        "list_objects",
+        session.list_objects(&database, schema.as_deref()),
+    )
+    .await?)
 }
 
 #[tauri::command]
@@ -41,7 +46,7 @@ pub async fn describe_table(
     target: TableTarget,
 ) -> CommandResult<TableInfo> {
     let session = state.sessions.get(&session_id)?;
-    Ok(session.describe_table(&target).await?)
+    Ok(timed("describe_table", session.describe_table(&target)).await?)
 }
 
 #[tauri::command]
@@ -51,7 +56,7 @@ pub async fn table_ddl(
     target: TableTarget,
 ) -> CommandResult<String> {
     let session = state.sessions.get(&session_id)?;
-    Ok(session.table_ddl(&target).await?)
+    Ok(timed("table_ddl", session.table_ddl(&target)).await?)
 }
 
 #[tauri::command]
@@ -61,5 +66,5 @@ pub async fn completion_schema(
     database: String,
 ) -> CommandResult<Vec<CompletionTable>> {
     let session = state.sessions.get(&session_id)?;
-    Ok(session.completion(&database).await?)
+    Ok(timed("completion_schema", session.completion(&database)).await?)
 }

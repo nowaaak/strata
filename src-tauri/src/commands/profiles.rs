@@ -4,6 +4,7 @@ use tauri::State;
 
 use crate::error::CommandResult;
 use crate::state::AppState;
+use crate::timing::timed;
 
 #[tauri::command]
 pub async fn list_profiles(state: State<'_, AppState>) -> CommandResult<Vec<ConnectionProfile>> {
@@ -35,10 +36,11 @@ pub async fn test_connection(
     ssh_secret: Option<PasswordUpdate>,
 ) -> CommandResult<ServerDetails> {
     let ssh_secret = ssh_secret.unwrap_or(PasswordUpdate::Keep);
-    Ok(state
-        .sessions
-        .test(&profile, &password, &ssh_secret)
-        .await?)
+    Ok(timed(
+        "test_connection",
+        state.sessions.test(&profile, &password, &ssh_secret),
+    )
+    .await?)
 }
 
 #[tauri::command]

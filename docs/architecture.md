@@ -108,7 +108,7 @@ Updates use `tauri-plugin-updater` from Rust. `check_for_update` asks the endpoi
 
 ## Logging
 
-Logs go to stdout and to a daily rotating file in the app log folder, seven files are kept. Commands log their outcome with counts and durations, never SQL text or passwords. Database errors are logged by kind only, because servers often quote parts of the statement in their message.
+Logs go to stdout and to a daily rotating file in the app log folder, seven files are kept. Commands log their outcome with counts and durations, never SQL text or passwords. Database errors are logged by kind only, because servers often quote parts of the statement in their message. Connecting, testing, the schema tree, table descriptions, DDL, completion and table loads write a `command timing` line with the command name, the duration and whether it succeeded, so slow steps can be found in the log of the installed app.
 
 ## Frontend state
 

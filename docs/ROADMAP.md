@@ -41,7 +41,7 @@ Goal: the everyday HeidiSQL tasks work without falling back to another tool.
 
 ## Done
 
-- First commit and a CI workflow (fmt, clippy, tests, typecheck, lint, bindings diff). It runs once the repository is on GitHub.
+- CI workflow on GitHub (fmt, clippy, tests, typecheck, lint, bindings diff) and a release workflow for signed Windows builds.
 - Open tabs and SQL drafts survive a restart and a disconnect. They reattach when their connection opens again.
 - Searchable query history per connection or across all connections (Ctrl+H), with reuse in the editor or a new tab. It can be turned off in the settings.
 - Daily rotating log file in the app data folder, kept for 7 days, without SQL text or passwords.

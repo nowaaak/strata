@@ -2,6 +2,7 @@ mod channel;
 mod commands;
 mod error;
 mod state;
+mod timing;
 
 use std::path::Path;
 use std::sync::Arc;

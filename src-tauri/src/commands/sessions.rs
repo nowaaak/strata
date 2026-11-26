@@ -3,6 +3,7 @@ use tauri::State;
 
 use crate::error::CommandResult;
 use crate::state::AppState;
+use crate::timing::timed;
 
 #[tauri::command]
 pub async fn open_session(
@@ -10,7 +11,7 @@ pub async fn open_session(
     profile_id: String,
     password: Option<String>,
 ) -> CommandResult<SessionInfo> {
-    let info = state.sessions.open(&profile_id, password).await?;
+    let info = timed("open_session", state.sessions.open(&profile_id, password)).await?;
     tracing::info!(
         profile = %profile_id,
         flavor = %info.server.flavor,

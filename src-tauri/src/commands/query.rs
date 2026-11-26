@@ -11,6 +11,7 @@ use tauri::ipc::Channel;
 
 use crate::error::CommandResult;
 use crate::state::AppState;
+use crate::timing::timed;
 
 fn forward(channel: Channel<QueryEvent>) -> impl Fn(QueryEvent) + Send + Sync {
     move |event| {
@@ -88,7 +89,11 @@ pub async fn load_table(
 ) -> CommandResult<()> {
     let session = state.sessions.get(&session_id)?;
     let emit = forward(on_event);
-    Ok(session.load_table(&tab_id, &target, &query, &emit).await?)
+    Ok(timed(
+        "load_table",
+        session.load_table(&tab_id, &target, &query, &emit),
+    )
+    .await?)
 }
 
 #[tauri::command]
