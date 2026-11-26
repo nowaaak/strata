@@ -27,6 +27,21 @@ npm install
 npm run app
 ```
 
+`npm run app` starts "Strata Dev" with the identifier `nd.strata.dev`. It has its own data folder and its own entries in the Windows Credential Manager, so development never touches the connections of the installed app. A debug build refuses to start with the release identifier, so plain `npm run tauri dev` fails on purpose.
+
+## Releases
+
+The installed app checks GitHub Releases for updates every six hours and on demand in Settings, About. Updates are signed, and the app only installs a build whose signature matches the public key in `src-tauri/tauri.conf.json`.
+
+To publish a version:
+
+1. Raise `version` in `package.json`.
+2. Commit, then tag and push: `git tag v0.2.0 && git push origin master v0.2.0`.
+
+The release workflow checks that the tag matches the version, builds the Windows installers, signs the update and publishes the release with `latest.json`. It needs the repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+
+The first install uses `Strata_<version>_x64-setup.exe` from the release.
+
 ## Checks
 
 ```sh

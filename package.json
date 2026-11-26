@@ -8,7 +8,7 @@
         "build": "tsc --noEmit && vite build",
         "preview": "vite preview",
         "tauri": "tauri",
-        "app": "tauri dev",
+        "app": "tauri dev --config src-tauri/tauri.dev.conf.json",
         "typecheck": "tsc --noEmit",
         "lint": "eslint .",
         "format": "prettier --write .",

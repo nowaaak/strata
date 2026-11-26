@@ -45,6 +45,7 @@ Goal: the everyday HeidiSQL tasks work without falling back to another tool.
 - Open tabs and SQL drafts survive a restart and a disconnect. They reattach when their connection opens again.
 - Searchable query history per connection or across all connections (Ctrl+H), with reuse in the editor or a new tab. It can be turned off in the settings.
 - Daily rotating log file in the app data folder, kept for 7 days, without SQL text or passwords.
+- Separate dev app ("Strata Dev", own data and credentials) and signed self updates of the installed app through GitHub Releases.
 - Installer build: `npm run tauri build` produces an MSI and an NSIS setup, and the release build was checked in the running app.
 - Create, rename, empty and delete databases, PostgreSQL schemas, tables and views from the schema tree, with SQL preview, typed confirmation for deleting databases and an entry in the query history. Tested against MySQL, MariaDB and PostgreSQL.
 - SSH tunnel per connection with password or key file, trust on first use for server keys and a hard stop on changed keys. Tested against MySQL and PostgreSQL, including TLS and query cancel through the tunnel.

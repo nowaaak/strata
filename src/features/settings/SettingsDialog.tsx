@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { formatCount } from "@/features/result-grid/format";
+import { UpdateCheck } from "@/features/updater/UpdateCheck";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import {
@@ -478,6 +479,7 @@ function About() {
                     Strata {version.data ?? ""}
                 </span>
             </div>
+            <UpdateCheck />
             {paths.data && (
                 <>
                     <PathRow label={t.settings.dataDir} path={paths.data.dataDir} />

@@ -1,3 +1,4 @@
+mod channel;
 mod commands;
 mod error;
 mod state;
@@ -28,12 +29,16 @@ const LOG_FILES_KEPT: usize = 7;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(commands::updater::PendingUpdate::default())
         .setup(|app| {
+            channel::check_identity(&app.config().identifier, channel::current())?;
             let data_dir = app.path().app_local_data_dir()?;
             let log_dir = app.path().app_log_dir()?;
             app.manage(init_logging(&log_dir)?);
             tracing::info!(
                 version = %app.package_info().version,
+                channel = ?channel::current(),
                 data_dir = %data_dir.display(),
                 log_dir = %log_dir.display(),
                 "starting strata"
@@ -95,6 +100,9 @@ pub fn run() {
             commands::history::list_history,
             commands::history::delete_history_entry,
             commands::history::clear_history,
+            commands::updater::get_app_info,
+            commands::updater::check_for_update,
+            commands::updater::install_update,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {

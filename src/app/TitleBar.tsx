@@ -2,6 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { CopyIcon, MinusIcon, SquareIcon, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { StrataLogo } from "@/components/brand/StrataLogo";
+import { useAppInfo } from "@/features/updater/UpdateCheck";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 
@@ -73,6 +74,7 @@ function WindowButton({
 
 export function TitleBar({ breadcrumb = [] }: { breadcrumb?: string[] }) {
     const t = useT();
+    const appInfo = useAppInfo();
     const maximized = useMaximized();
     const appWindow = getCurrentWindow();
 
@@ -86,6 +88,11 @@ export function TitleBar({ breadcrumb = [] }: { breadcrumb?: string[] }) {
                 <span className="pointer-events-none text-sm font-semibold tracking-tight">
                     Strata
                 </span>
+                {appInfo.data?.channel === "dev" && (
+                    <span className="pointer-events-none rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[0.6875rem] font-semibold text-amber-600 uppercase dark:text-amber-400">
+                        {t.updater.dev}
+                    </span>
+                )}
             </div>
             <span
                 aria-hidden

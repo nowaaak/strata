@@ -6,4 +6,5 @@ pub mod query;
 pub mod schema;
 pub mod sessions;
 pub mod settings;
+pub mod updater;
 pub mod workspace;

@@ -27,6 +27,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { requestStructure, SessionTree, TreeToggle } from "@/features/schema-tree/SchemaTree";
+import { UpdateNotice } from "@/features/updater/UpdateNotice";
 import { sessionForProfile, useWorkspace } from "@/features/workspace/workspaceStore";
 import { getT, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -230,6 +231,7 @@ export function ConnectionsSidebar() {
                 )}
             </ScrollArea>
             <div className="flex flex-col gap-1 border-t border-sidebar-border pt-2">
+                <UpdateNotice />
                 <button
                     type="button"
                     onClick={() => useUiStore.getState().setSettingsOpen(true)}

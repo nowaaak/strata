@@ -10,6 +10,7 @@ import * as schema from "./modules/schema";
 import * as settings from "./modules/settings";
 import * as structure from "./modules/structure";
 import * as table from "./modules/table";
+import * as updater from "./modules/updater";
 
 const de = {
     app: app.de,
@@ -24,6 +25,7 @@ const de = {
     settings: settings.de,
     structure: structure.de,
     table: table.de,
+    updater: updater.de,
 };
 
 export type Messages = typeof de;
@@ -41,6 +43,7 @@ const en: Messages = {
     settings: settings.en,
     structure: structure.en,
     table: table.en,
+    updater: updater.en,
 };
 
 export const messages = { de, en } as const;

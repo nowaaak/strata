@@ -100,6 +100,12 @@ The backend records every editor execution after it finished, so a crash in the 
 
 The file `history.jsonl` is append only: one JSON line per entry or deletion. A torn last line after a crash is skipped on load. The file is compacted when obsolete lines outnumber live entries, and only the newest 5,000 entries are kept. SQL larger than 100 KB is not recorded. History can be disabled in the settings, because SQL is stored unencrypted.
 
+## Channels and updates
+
+A debug build is the dev channel, a release build is the release channel. The dev channel must run with an identifier ending in `.dev` (`src-tauri/tauri.dev.conf.json`), otherwise setup fails before any file is touched. Because the data folder and the keyring service both derive from the identifier, the dev and the installed app never share profiles, passwords, history or tabs.
+
+Updates use `tauri-plugin-updater` from Rust. `check_for_update` asks the endpoint in `tauri.conf.json` and keeps the found update in memory. `install_update` downloads it, reports progress through the `update:progress` event, runs the NSIS installer in passive mode and restarts. The dev channel never checks or installs updates. The install button is disabled while a query runs.
+
 ## Logging
 
 Logs go to stdout and to a daily rotating file in the app log folder, seven files are kept. Commands log their outcome with counts and durations, never SQL text or passwords. Database errors are logged by kind only, because servers often quote parts of the statement in their message.
