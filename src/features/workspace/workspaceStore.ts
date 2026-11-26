@@ -22,6 +22,7 @@ export type TableTab = {
     profileId: string;
     title: string;
     target: TableTarget;
+    filter?: { value: string; nonce: number };
 };
 
 export type WorkspaceTab = QueryTab | TableTab;
@@ -45,7 +46,7 @@ type WorkspaceState = {
     removeProfileTabs: (profileId: string) => void;
     openQueryTab: (sessionId: string, database: string | null, sql?: string) => string | null;
     openProfileQueryTab: (profileId: string, database: string | null, sql: string) => string;
-    openTableTab: (sessionId: string, target: TableTarget) => string | null;
+    openTableTab: (sessionId: string, target: TableTarget, filter?: string) => string | null;
     closeTab: (tabId: string) => WorkspaceTab | undefined;
     activate: (tabId: string) => void;
     updateQueryTab: (tabId: string, patch: Partial<Pick<QueryTab, "sql" | "database">>) => void;
@@ -174,7 +175,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         return tab.id;
     },
 
-    openTableTab: (sessionId, target) => {
+    openTableTab: (sessionId, target, filter) => {
         const state = get();
         const session = state.sessions[sessionId];
         if (!session) {
@@ -186,11 +187,15 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
                 tab.profileId === session.profileId &&
                 sameTarget(tab.target, target),
         );
+        const filterRequest =
+            filter === undefined ? undefined : { value: filter, nonce: Date.now() };
         if (existing) {
             set({
                 activeTabId: existing.id,
                 tabs: state.tabs.map((tab) =>
-                    tab.id === existing.id ? { ...tab, sessionId } : tab,
+                    tab.id === existing.id
+                        ? { ...tab, sessionId, ...(filterRequest ? { filter: filterRequest } : {}) }
+                        : tab,
                 ),
             });
             return existing.id;
@@ -202,6 +207,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
             profileId: session.profileId,
             title: target.table,
             target,
+            ...(filterRequest ? { filter: filterRequest } : {}),
         };
         set({ tabs: [...state.tabs, tab], activeTabId: tab.id });
         return tab.id;

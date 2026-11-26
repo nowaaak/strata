@@ -1,5 +1,7 @@
 import type { CompletionTable } from "@/bindings/CompletionTable";
 import type { DbObject } from "@/bindings/DbObject";
+import type { Routine } from "@/bindings/Routine";
+import type { RoutineTarget } from "@/bindings/RoutineTarget";
 import type { TableInfo } from "@/bindings/TableInfo";
 import type { TableTarget } from "@/bindings/TableTarget";
 import { call } from "./invoke";
@@ -20,3 +22,12 @@ export const tableDdl = (sessionId: string, target: TableTarget) =>
 
 export const completionSchema = (sessionId: string, database: string) =>
     call<CompletionTable[]>("completion_schema", { sessionId, database });
+
+export const listRoutines = (sessionId: string, database: string, schema: string | null) =>
+    call<Routine[]>("list_routines", { sessionId, database, schema });
+
+export const routineDdl = (sessionId: string, target: RoutineTarget) =>
+    call<string>("routine_ddl", { sessionId, target });
+
+export const equalityFilter = (sessionId: string, columns: string[], values: (string | null)[]) =>
+    call<string>("equality_filter", { sessionId, columns, values });

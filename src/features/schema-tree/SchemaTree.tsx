@@ -24,6 +24,7 @@ import {
     ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { createTableTemplate } from "@/features/structure/actions";
+import { RoutineGroups } from "./RoutineGroups";
 import { useWorkspace } from "@/features/workspace/workspaceStore";
 import { getT, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -488,15 +489,15 @@ function ObjectList({
     const visible = filter
         ? objects.data.filter((object) => object.name.toLowerCase().includes(filter))
         : objects.data;
-    if (visible.length === 0) {
-        return (
-            <TreeMessage level={level - 1}>
-                {filter ? t.schema.noMatches : t.schema.noTables}
-            </TreeMessage>
-        );
-    }
     return (
         <ul role="group">
+            {visible.length === 0 && (
+                <li>
+                    <TreeMessage level={level - 1}>
+                        {filter ? t.schema.noMatches : t.schema.noTables}
+                    </TreeMessage>
+                </li>
+            )}
             {visible.map((object) => (
                 <li key={object.name}>
                     <ObjectNode
@@ -507,7 +508,33 @@ function ObjectList({
                     />
                 </li>
             ))}
+            <RoutineGroups
+                session={session}
+                database={database}
+                schema={schema}
+                level={level}
+                filter={filter}
+                indent={indent}
+                renderToggle={(props) => <ExpandToggle {...props} />}
+            />
         </ul>
+    );
+}
+
+function ExpandToggle({
+    label,
+    level,
+    expandedKey,
+    icon,
+}: {
+    label: string;
+    level: number;
+    expandedKey: string;
+    icon: ReactNode;
+}) {
+    const [expanded, toggle] = useExpanded(expandedKey);
+    return (
+        <TreeToggle label={label} level={level} expanded={expanded} onToggle={toggle} icon={icon} />
     );
 }
 
@@ -580,6 +607,18 @@ function ObjectNode({
                 {!session.readOnly && (
                     <>
                         <ContextMenuSeparator />
+                        {object.kind === "table" && (
+                            <ContextMenuItem
+                                onSelect={() =>
+                                    useUiStore.getState().setImportRequest({
+                                        sessionId: session.sessionId,
+                                        target,
+                                    })
+                                }
+                            >
+                                {t.importer.menu}
+                            </ContextMenuItem>
+                        )}
                         {object.kind === "table" && (
                             <ContextMenuItem
                                 onSelect={() =>

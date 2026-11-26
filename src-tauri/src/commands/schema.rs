@@ -68,3 +68,14 @@ pub async fn completion_schema(
     let session = state.sessions.get(&session_id)?;
     Ok(timed("completion_schema", session.completion(&database)).await?)
 }
+
+#[tauri::command]
+pub fn equality_filter(
+    state: State<'_, AppState>,
+    session_id: String,
+    columns: Vec<String>,
+    values: Vec<Option<String>>,
+) -> CommandResult<String> {
+    let session = state.sessions.get(&session_id)?;
+    Ok(session.equality_filter(&columns, &values)?)
+}

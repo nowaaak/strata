@@ -1,3 +1,13 @@
+import type { RoutineKind } from "@/bindings/RoutineKind";
+
+const ROUTINE_DE: Record<RoutineKind, string> = {
+    function: "Funktion",
+    procedure: "Prozedur",
+    trigger: "Trigger",
+    event: "Event",
+    sequence: "Sequenz",
+};
+
 export const de = {
     menu: {
         newDatabase: "Neue Datenbank…",
@@ -19,6 +29,7 @@ export const de = {
         truncate_table: (name: string) => `Tabelle „${name}“ leeren?`,
         drop_table: (name: string) => `Tabelle „${name}“ löschen?`,
         drop_view: (name: string) => `View „${name}“ löschen?`,
+        drop_routine: (kind: RoutineKind, name: string) => `${ROUTINE_DE[kind]} „${name}“ löschen?`,
     },
     description: {
         create: "Strata führt genau das unten gezeigte SQL aus.",
@@ -28,6 +39,8 @@ export const de = {
         drop_schema: "Ohne CASCADE bricht der Server ab, solange das Schema noch Objekte enthält.",
         truncate: "Alle Zeilen werden unwiderruflich entfernt. Die Struktur bleibt erhalten.",
         drop: "Die Daten gehen unwiderruflich verloren. Offene Tabs dieses Objekts werden geschlossen.",
+        drop_routine:
+            "Die Definition wird gelöscht. Objekte, die darauf aufbauen, funktionieren danach nicht mehr.",
     },
     name: "Name",
     newName: "Neuer Name",
@@ -66,6 +79,7 @@ export const en: typeof de = {
         truncate_table: (name: string) => `Empty table “${name}”?`,
         drop_table: (name: string) => `Delete table “${name}”?`,
         drop_view: (name: string) => `Delete view “${name}”?`,
+        drop_routine: (kind: RoutineKind, name: string) => `Delete ${kind} “${name}”?`,
     },
     description: {
         create: "Strata runs exactly the SQL shown below.",
@@ -74,6 +88,7 @@ export const en: typeof de = {
         drop_schema: "Without CASCADE the server refuses while the schema still contains objects.",
         truncate: "All rows are removed for good. The structure stays.",
         drop: "The data is lost for good. Open tabs of this object are closed.",
+        drop_routine: "The definition is deleted. Objects that rely on it stop working.",
     },
     name: "Name",
     newName: "New name",

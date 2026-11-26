@@ -5,6 +5,7 @@ import * as designer from "./modules/designer";
 import * as errors from "./modules/errors";
 import * as grid from "./modules/grid";
 import * as history from "./modules/history";
+import * as importer from "./modules/importer";
 import * as palette from "./modules/palette";
 import * as processes from "./modules/processes";
 import * as query from "./modules/query";
@@ -22,6 +23,7 @@ const de = {
     errors: errors.de,
     grid: grid.de,
     history: history.de,
+    importer: importer.de,
     palette: palette.de,
     processes: processes.de,
     query: query.de,
@@ -42,6 +44,7 @@ const en: Messages = {
     errors: errors.en,
     grid: grid.en,
     history: history.en,
+    importer: importer.en,
     palette: palette.en,
     processes: processes.en,
     query: query.en,

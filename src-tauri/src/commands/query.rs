@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use strata_core::driver::Row;
-use strata_core::export::{self, ExportFormat};
+use strata_core::export::{self, ExportFormat, ExportSource, ExportSummary};
 use strata_core::history::{HistoryStatus, NewHistoryEntry};
 use strata_core::schema::TableTarget;
 use strata_core::session::{QUERY_ROW_CAP, QueryEvent};
@@ -143,4 +143,44 @@ pub async fn export_result(
     let session = state.sessions.get(&session_id)?;
     let set = session.result(&tab_id, result)?;
     Ok(export::export_result(set, format, path).await?)
+}
+
+#[tauri::command]
+pub async fn export_full(
+    state: State<'_, AppState>,
+    session_id: String,
+    export_id: String,
+    source: ExportSource,
+    format: ExportFormat,
+    path: PathBuf,
+    on_progress: Channel<u64>,
+) -> CommandResult<ExportSummary> {
+    let session = state.sessions.get(&session_id)?;
+    let progress = Box::new(move |rows: u64| {
+        if let Err(err) = on_progress.send(rows) {
+            tracing::debug!(error = %err, "export progress could not be delivered");
+        }
+    });
+    let started = std::time::Instant::now();
+    let summary = session
+        .export_full(&export_id, &source, format, path, progress)
+        .await?;
+    tracing::info!(
+        rows = summary.rows,
+        cancelled = summary.cancelled,
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "full export finished"
+    );
+    Ok(summary)
+}
+
+#[tauri::command]
+pub fn cancel_export(
+    state: State<'_, AppState>,
+    session_id: String,
+    export_id: String,
+) -> CommandResult<()> {
+    let session = state.sessions.get(&session_id)?;
+    session.cancel_export(&export_id);
+    Ok(())
 }

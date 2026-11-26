@@ -50,6 +50,16 @@ export const de = {
         json: "JSON",
         done: (rows: number) => `${n(rows, "Zeile", "Zeilen")} exportiert`,
         failed: "Export fehlgeschlagen",
+        loaded: "Geladene Zeilen",
+        full: "Alle Zeilen, Abfrage läuft erneut",
+        fullCsv: "Alle Zeilen als CSV",
+        fullJson: "Alle Zeilen als JSON",
+        running: (rows: number) =>
+            rows === 0
+                ? "Export läuft…"
+                : `Export läuft, ${n(rows, "Zeile", "Zeilen")} geschrieben…`,
+        cancel: "Abbrechen",
+        cancelled: (rows: number) => `Export abgebrochen nach ${n(rows, "Zeile", "Zeilen")}`,
     },
 };
 
@@ -103,5 +113,13 @@ export const en: typeof de = {
         json: "JSON",
         done: (rows: number) => `${nEn(rows, "row", "rows")} exported`,
         failed: "Export failed",
+        loaded: "Loaded rows",
+        full: "All rows, runs the query again",
+        fullCsv: "All rows as CSV",
+        fullJson: "All rows as JSON",
+        running: (rows: number) =>
+            rows === 0 ? "Exporting…" : `Exporting, ${nEn(rows, "row", "rows")} written…`,
+        cancel: "Cancel",
+        cancelled: (rows: number) => `Export cancelled after ${nEn(rows, "row", "rows")}`,
     },
 };

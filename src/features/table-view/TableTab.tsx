@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+    FileUpIcon,
     FilterIcon,
     Loader2Icon,
     LockIcon,
@@ -12,7 +13,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { applyChanges, previewChanges } from "@/api/edit";
 import { errorMessage } from "@/api/invoke";
-import { describeTable, tableDdl } from "@/api/schema";
+import { describeTable, equalityFilter, tableDdl } from "@/api/schema";
 import { useUiStore } from "@/app/uiStore";
 import type { SortSpec } from "@/bindings/SortSpec";
 import { Button } from "@/components/ui/button";
@@ -32,7 +33,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { SqlEditor } from "@/features/query-editor/SqlEditor";
-import { DataGrid, type GridEditor } from "@/features/result-grid/DataGrid";
+import { DataGrid, type GridEditor, type GridLink } from "@/features/result-grid/DataGrid";
 import { ExportMenu } from "@/features/result-grid/ExportMenu";
 import { RunStatus } from "@/features/result-grid/ResultPanel";
 import { firstError } from "@/features/result-grid/runState";
@@ -45,7 +46,7 @@ import {
     type Attached,
     type TableTab as TableTabModel,
 } from "@/features/workspace/workspaceStore";
-import { useT } from "@/i18n";
+import { getT, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { CellDialog, type CellDialogState } from "./CellDialog";
 import { StructureView } from "./StructureView";
@@ -69,8 +70,10 @@ export function TableTab({ tab }: { tab: Attached<TableTabModel> }) {
     const session = useWorkspace((state) => state.sessions[tab.sessionId]);
     const defaultLimit = useSettings().data?.defaultRowLimit ?? DEFAULT_SETTINGS.defaultRowLimit;
     const [view, setView] = useState<View>("data");
-    const [filterDraft, setFilterDraft] = useState("");
-    const [filter, setFilter] = useState<string | null>(null);
+    const [filterDraft, setFilterDraft] = useState(tab.filter?.value ?? "");
+    const [filter, setFilter] = useState<string | null>(tab.filter?.value ?? null);
+    const [appliedFilter, setAppliedFilter] = useState(tab.filter?.nonce);
+    const [blockedFilter, setBlockedFilter] = useState<number | null>(null);
     const [sort, setSort] = useState<SortSpec | null>(null);
     const [limit, setLimit] = useState(defaultLimit);
     const [reloadToken, setReloadToken] = useState(0);
@@ -119,6 +122,53 @@ export function TableTab({ tab }: { tab: Attached<TableTabModel> }) {
         keyColumns,
         original: (row) => cache?.row(row),
     };
+
+    if (tab.filter && tab.filter.nonce !== appliedFilter) {
+        setAppliedFilter(tab.filter.nonce);
+        if (dirty) {
+            setBlockedFilter(tab.filter.nonce);
+        } else {
+            setView("data");
+            setFilterDraft(tab.filter.value);
+            setFilter(tab.filter.value);
+        }
+    }
+
+    useEffect(() => {
+        if (blockedFilter !== null) {
+            toast.info(getT().table.finishFirst);
+        }
+    }, [blockedFilter]);
+
+    const links: GridLink[] = (info.data?.foreignKeys ?? []).flatMap((key) => {
+        const indexes = key.columns.map((name) => columnNames.indexOf(name));
+        if (indexes.some((index) => index < 0)) {
+            return [];
+        }
+        const sameTarget = (info.data?.foreignKeys ?? []).filter(
+            (other) => other.target.table === key.target.table,
+        ).length;
+        return [
+            {
+                label:
+                    sameTarget > 1
+                        ? text.followKeyVia(key.target.table, key.columns.join(", "))
+                        : text.followKey(key.target.table),
+                columns: indexes,
+                open: (values: (string | null)[]) => {
+                    void equalityFilter(tab.sessionId, key.targetColumns, values)
+                        .then((next) =>
+                            useWorkspace.getState().openTableTab(tab.sessionId, key.target, next),
+                        )
+                        .catch((error: unknown) =>
+                            toast.error(getT().table.followFailed, {
+                                description: errorMessage(error),
+                            }),
+                        );
+                },
+            },
+        ];
+    });
 
     const guard = (action: () => void) => {
         if (dirty) {
@@ -368,6 +418,7 @@ export function TableTab({ tab }: { tab: Attached<TableTabModel> }) {
                                     sort={sort}
                                     onSort={onSort}
                                     editor={editor}
+                                    links={links}
                                 />
                             ) : run?.running ? (
                                 <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -394,12 +445,28 @@ export function TableTab({ tab }: { tab: Attached<TableTabModel> }) {
                                     {text.moreRows}
                                 </span>
                             )}
+                            {session && !session.readOnly && (
+                                <Button
+                                    variant="ghost"
+                                    size="xs"
+                                    onClick={() =>
+                                        useUiStore.getState().setImportRequest({
+                                            sessionId: tab.sessionId,
+                                            target: tab.target,
+                                        })
+                                    }
+                                >
+                                    <FileUpIcon />
+                                    {t.importer.button}
+                                </Button>
+                            )}
                             <ExportMenu
                                 sessionId={tab.sessionId}
                                 tabId={tab.id}
                                 result={result.result}
                                 baseName={tab.target.table}
                                 disabled={run.running}
+                                fullSource={{ kind: "table", target: tab.target, filter, sort }}
                             />
                         </span>
                     )}

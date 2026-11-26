@@ -6,13 +6,9 @@ Effort: S is up to a day, M a few days, L a week or more.
 
 Goal: the everyday HeidiSQL tasks work without falling back to another tool.
 
-| Item                                                             | Why                                         | Effort |
-| ---------------------------------------------------------------- | ------------------------------------------- | ------ |
-| Views, routines, triggers and events in the tree, with their DDL | The tree only shows tables and views.       | M      |
-| Foreign key navigation from a cell to the referenced row         | Speeds up exploring related data.           | M      |
-| Import CSV into a table with column mapping                      | Common data task, HeidiSQL has it.          | M      |
-| SQL dump export of tables or a database                          | Backups and moving data between servers.    | L      |
-| Export the full query result, not only the buffered rows         | Exports stop at the one million row buffer. | M      |
+| Item                                    | Why                                      | Effort |
+| --------------------------------------- | ---------------------------------------- | ------ |
+| SQL dump export of tables or a database | Backups and moving data between servers. | L      |
 
 ## 2. Comfort
 
@@ -39,6 +35,7 @@ Goal: the everyday HeidiSQL tasks work without falling back to another tool.
 
 ## Done
 
+- Functions, procedures, triggers, events and sequences in the schema tree with DDL and delete, foreign key navigation from a cell, full export without the row buffer limit, and CSV import with column mapping. Tested against MySQL, MariaDB and PostgreSQL 17 and 18.
 - Table designer for columns, defaults, auto increment and indexes, and for new tables with a primary key. MySQL keeps collation, comment and `ON UPDATE`, PostgreSQL runs everything in one transaction. Tested against MySQL, MariaDB and PostgreSQL 17 and 18.
 - SQL formatter (Shift+Alt+F), process list with cancel and end connection, and a JSON view in the cell editor that never rewrites numbers or strings.
 - Integration tests also run against PostgreSQL 18.

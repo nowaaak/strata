@@ -3,10 +3,13 @@ use std::time::{Duration, Instant};
 
 use strata_core::design::{AlterOp, ColumnDef, DefaultValue, NewTable};
 use strata_core::driver::ColumnKind;
+use strata_core::export::{ExportFormat, ExportSource};
+use strata_core::import::{ColumnMapping, CsvImport, CsvOptions};
 use strata_core::processes::KillMode;
 use strata_core::profiles::{
     ConnectionProfile, Engine, PasswordUpdate, ProfileColor, ProfileStore, Safety, TlsMode,
 };
+use strata_core::routines::{RoutineKind, RoutineTarget};
 use strata_core::schema::{ObjectKind, TableTarget};
 use strata_core::secrets::MemorySecretStore;
 use strata_core::session::{QUERY_ROW_CAP, QueryEvent, Session, SessionManager, StatementOutcome};
@@ -1138,4 +1141,501 @@ async fn postgres_designer() {
 #[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
 async fn postgres_18_designer() {
     designer(POSTGRES_18, "it_design_postgres").await;
+}
+
+async fn routines(server: Server, prefix: &str) {
+    let harness = open(server, Safety::Normal).await;
+    let session = &harness.session;
+    let postgres = server.engine == Engine::Postgres;
+    let table = format!("{prefix}_t");
+    let setup = if postgres {
+        format!(
+            "DROP TABLE IF EXISTS public.{table} CASCADE; DROP FUNCTION IF EXISTS public.{prefix}_f(integer); DROP PROCEDURE IF EXISTS public.{prefix}_p(); DROP FUNCTION IF EXISTS public.{prefix}_tf() CASCADE; DROP SEQUENCE IF EXISTS public.{prefix}_s;
+             CREATE TABLE public.{table} (v integer);
+             CREATE FUNCTION public.{prefix}_f(a integer) RETURNS integer LANGUAGE sql AS 'SELECT a + 1';
+             CREATE PROCEDURE public.{prefix}_p() LANGUAGE sql AS 'SELECT 1';
+             CREATE FUNCTION public.{prefix}_tf() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RETURN NEW; END';
+             CREATE TRIGGER {prefix}_tr BEFORE INSERT ON public.{table} FOR EACH ROW EXECUTE FUNCTION public.{prefix}_tf();
+             CREATE SEQUENCE public.{prefix}_s START 5 INCREMENT 2"
+        )
+    } else {
+        format!(
+            "DROP TABLE IF EXISTS {table}; DROP FUNCTION IF EXISTS {prefix}_f; DROP PROCEDURE IF EXISTS {prefix}_p; DROP EVENT IF EXISTS {prefix}_e;
+             CREATE TABLE {table} (v INT);
+             CREATE FUNCTION {prefix}_f(a INT) RETURNS INT DETERMINISTIC NO SQL RETURN a + 1;
+             CREATE PROCEDURE {prefix}_p() SELECT 1;
+             CREATE TRIGGER {prefix}_tr BEFORE INSERT ON {table} FOR EACH ROW SET NEW.v = NEW.v + 0;
+             CREATE EVENT {prefix}_e ON SCHEDULE EVERY 1 DAY DISABLE DO SELECT 1"
+        )
+    };
+    run_in(session, "r", "strata", &setup).await;
+
+    let schema = postgres.then_some("public");
+    let listed = session.list_routines("strata", schema).await.unwrap();
+    let find = |kind: RoutineKind, name: &str| {
+        listed
+            .iter()
+            .find(|routine| routine.kind == kind && routine.name == name)
+            .unwrap_or_else(|| panic!("{kind:?} {name} missing in {listed:?}"))
+            .clone()
+    };
+    let mut expected = vec![
+        find(RoutineKind::Function, &format!("{prefix}_f")),
+        find(RoutineKind::Procedure, &format!("{prefix}_p")),
+        find(RoutineKind::Trigger, &format!("{prefix}_tr")),
+    ];
+    if postgres {
+        expected.push(find(RoutineKind::Sequence, &format!("{prefix}_s")));
+        assert_eq!(expected[0].arguments.as_deref(), Some("a integer"));
+    } else {
+        expected.push(find(RoutineKind::Event, &format!("{prefix}_e")));
+    }
+    assert_eq!(expected[2].table.as_deref(), Some(table.as_str()));
+
+    for routine in &expected {
+        let target = RoutineTarget {
+            database: "strata".into(),
+            schema: schema.map(str::to_string),
+            routine: routine.clone(),
+        };
+        let ddl = session.routine_ddl(&target).await.unwrap();
+        assert!(ddl.contains(&routine.name), "{ddl}");
+        assert!(ddl.to_uppercase().contains("CREATE"), "{ddl}");
+        if routine.kind == RoutineKind::Sequence {
+            assert!(ddl.contains("START WITH 5"), "{ddl}");
+            assert!(ddl.contains("INCREMENT BY 2"), "{ddl}");
+        }
+    }
+
+    for routine in &expected {
+        session
+            .run_ddl(&DdlAction::DropRoutine {
+                target: RoutineTarget {
+                    database: "strata".into(),
+                    schema: schema.map(str::to_string),
+                    routine: routine.clone(),
+                },
+            })
+            .await
+            .unwrap();
+    }
+    let remaining = session.list_routines("strata", schema).await.unwrap();
+    for routine in &expected {
+        assert!(
+            !remaining
+                .iter()
+                .any(|other| other.kind == routine.kind && other.name == routine.name),
+            "{routine:?} should be gone"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_routines() {
+    routines(MYSQL, "it_rt_mysql").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_routines() {
+    routines(MARIADB, "it_rt_mariadb").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_routines() {
+    routines(POSTGRES, "it_rt_pg").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_18_routines() {
+    routines(POSTGRES_18, "it_rt_pg").await;
+}
+
+async fn foreign_keys(server: Server, prefix: &str) {
+    let harness = open(server, Safety::Normal).await;
+    let session = &harness.session;
+    let postgres = server.engine == Engine::Postgres;
+    let schema = if postgres { "public." } else { "" };
+    let parent = format!("{prefix}_parent");
+    let child = format!("{prefix}_child");
+    run_in(
+        session,
+        "f",
+        "strata",
+        &format!(
+            "DROP TABLE IF EXISTS {schema}{child}; DROP TABLE IF EXISTS {schema}{parent};
+             CREATE TABLE {schema}{parent} (region VARCHAR(10), id INT, name VARCHAR(40), PRIMARY KEY (region, id));
+             CREATE TABLE {schema}{child} (cid INT PRIMARY KEY, region VARCHAR(10), parent_id INT, CONSTRAINT {child}_fk FOREIGN KEY (region, parent_id) REFERENCES {schema}{parent} (region, id));
+             INSERT INTO {schema}{parent} VALUES ('süd', 1, 'Käse'), ('nord', 1, 'Brot');
+             INSERT INTO {schema}{child} VALUES (10, 'süd', 1)"
+        ),
+    )
+    .await;
+
+    let info = session
+        .describe_table(&target(server, &child))
+        .await
+        .unwrap();
+    assert_eq!(info.foreign_keys.len(), 1, "{info:?}");
+    let key = &info.foreign_keys[0];
+    assert_eq!(key.columns, ["region", "parent_id"]);
+    assert_eq!(key.target_columns, ["region", "id"]);
+    assert_eq!(key.target.table, parent);
+    assert_eq!(key.target.database, "strata");
+    assert_eq!(key.target.schema.as_deref(), postgres.then_some("public"));
+
+    let filter = session
+        .equality_filter(&key.target_columns, &[Some("süd".into()), Some("1".into())])
+        .unwrap();
+    session
+        .load_table(
+            "fk",
+            &key.target,
+            &TableQuery {
+                filter: Some(filter),
+                sort: None,
+                limit: 100,
+            },
+            &|_| {},
+        )
+        .await
+        .unwrap();
+    let rows = session.fetch_rows("fk", 0, 0, 10).unwrap();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0][2].as_deref(), Some("Käse"));
+
+    let tricky = session
+        .equality_filter(&["name".into()], &[Some(r"it's \ done".into())])
+        .unwrap();
+    run_in(
+        session,
+        "f",
+        "strata",
+        &format!("SELECT COUNT(*) FROM {schema}{parent} WHERE {tricky}"),
+    )
+    .await;
+    assert_eq!(
+        session.fetch_rows("f", 0, 0, 1).unwrap()[0][0].as_deref(),
+        Some("0")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_foreign_keys() {
+    foreign_keys(MYSQL, "it_fk_mysql").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_foreign_keys() {
+    foreign_keys(MARIADB, "it_fk_mariadb").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_foreign_keys() {
+    foreign_keys(POSTGRES, "it_fk_pg").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_18_foreign_keys() {
+    foreign_keys(POSTGRES_18, "it_fk_pg").await;
+}
+
+fn big_query(server: Server) -> String {
+    if server.engine == Engine::Postgres {
+        "SELECT v, 'Zeile ' || v AS label FROM generate_series(1, 1200000) AS v".into()
+    } else {
+        "WITH d AS (SELECT 0 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) SELECT a.n + 10 * b.n + 100 * c.n + 1000 * e.n + 10000 * f.n + 100000 * g.n + 1000000 * h.n + 1 AS v, 'Zeile' AS label FROM d a, d b, d c, d e, d f, d g, d h LIMIT 1200000".into()
+    }
+}
+
+async fn full_export(server: Server, prefix: &str) {
+    let harness = open(server, Safety::Normal).await;
+    let session = &harness.session;
+    let dir = tempfile::tempdir().unwrap();
+
+    let csv = dir.path().join(format!("{prefix}.csv"));
+    let reported = Arc::new(Mutex::new(Vec::new()));
+    let summary = session
+        .export_full(
+            "big",
+            &ExportSource::Query {
+                database: Some("strata".into()),
+                sql: big_query(server),
+            },
+            ExportFormat::Csv,
+            csv.clone(),
+            Box::new({
+                let reported = reported.clone();
+                move |rows| reported.lock().unwrap().push(rows)
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(summary.rows, 1_200_000);
+    assert!(!summary.cancelled);
+    let text = std::fs::read_to_string(&csv).unwrap();
+    assert_eq!(text.lines().count(), 1_200_001);
+    assert!(text.starts_with("\u{feff}v,label\r\n"), "{}", &text[..40]);
+    assert!(reported.lock().unwrap().contains(&1_000_000));
+    assert!(!dir.path().join(format!("{prefix}.csv.tmp")).exists());
+
+    let postgres = server.engine == Engine::Postgres;
+    let table = format!("{prefix}_t");
+    let schema = if postgres { "public." } else { "" };
+    run_in(
+        session,
+        "x",
+        "strata",
+        &format!(
+            "DROP TABLE IF EXISTS {schema}{table}; CREATE TABLE {schema}{table} (id INT PRIMARY KEY, name VARCHAR(20)); INSERT INTO {schema}{table} VALUES (1, 'Käse'), (2, NULL), (3, 'Brot')"
+        ),
+    )
+    .await;
+    let json = dir.path().join(format!("{prefix}.json"));
+    let summary = session
+        .export_full(
+            "table",
+            &ExportSource::Table {
+                target: target(server, &table),
+                filter: Some("id >= 2".into()),
+                sort: Some(SortSpec {
+                    column: "id".into(),
+                    descending: true,
+                }),
+            },
+            ExportFormat::Json,
+            json.clone(),
+            Box::new(|_| {}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(summary.rows, 2);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    assert_eq!(
+        parsed,
+        serde_json::json!([{"id": "3", "name": "Brot"}, {"id": "2", "name": null}])
+    );
+
+    let refused = session
+        .export_full(
+            "write",
+            &ExportSource::Query {
+                database: Some("strata".into()),
+                sql: format!("DELETE FROM {schema}{table}"),
+            },
+            ExportFormat::Csv,
+            dir.path().join("never.csv"),
+            Box::new(|_| {}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(refused.kind(), "invalid_input");
+    assert!(!dir.path().join("never.csv").exists());
+
+    let cancelled_path = dir.path().join(format!("{prefix}_cancel.csv"));
+    let running = tokio::spawn({
+        let session = harness.session.clone();
+        let path = cancelled_path.clone();
+        let sql = big_query(server);
+        async move {
+            session
+                .export_full(
+                    "cancel",
+                    &ExportSource::Query {
+                        database: Some("strata".into()),
+                        sql,
+                    },
+                    ExportFormat::Csv,
+                    path,
+                    Box::new(|_| {}),
+                )
+                .await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    session.cancel_export("cancel");
+    let summary = tokio::time::timeout(Duration::from_secs(15), running)
+        .await
+        .expect("a cancelled export must stop")
+        .unwrap()
+        .unwrap();
+    assert!(summary.cancelled, "{summary:?}");
+    assert!(summary.rows < 1_200_000, "{summary:?}");
+    assert!(!cancelled_path.exists());
+    assert!(!dir.path().join(format!("{prefix}_cancel.csv.tmp")).exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_full_export() {
+    full_export(MYSQL, "it_exp_mysql").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_full_export() {
+    full_export(MARIADB, "it_exp_mariadb").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_full_export() {
+    full_export(POSTGRES, "it_exp_pg").await;
+}
+
+async fn csv_import(server: Server, prefix: &str) {
+    let harness = open(server, Safety::Normal).await;
+    let session = &harness.session;
+    let postgres = server.engine == Engine::Postgres;
+    let schema = if postgres { "public." } else { "" };
+    let table = format!("{prefix}_t");
+    run_in(
+        session,
+        "i",
+        "strata",
+        &format!(
+            "DROP TABLE IF EXISTS {schema}{table}; CREATE TABLE {schema}{table} (id INT PRIMARY KEY, name VARCHAR(40), price DECIMAL(10,2), note TEXT)"
+        ),
+    )
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("excel.csv");
+    let mut bytes = b"Nummer;Bezeichnung;Preis;Bemerkung\r\n".to_vec();
+    bytes.extend_from_slice(b"1;K\xe4se;1.234,50;\"zwei\r\nZeilen\"\r\n");
+    bytes.extend_from_slice(b"2;\x84Gru\xdf\x93;0,99;\r\n");
+    bytes.extend_from_slice(b"3;;;\"sagt \"\"hallo\"\"\"\r\n");
+    std::fs::write(&path, &bytes).unwrap();
+
+    let mapping = |pairs: &[(&str, u32)]| {
+        pairs
+            .iter()
+            .map(|(column, source)| ColumnMapping {
+                column: column.to_string(),
+                source: *source,
+            })
+            .collect::<Vec<_>>()
+    };
+    let request = CsvImport {
+        path: path.display().to_string(),
+        options: CsvOptions {
+            delimiter: None,
+            header: true,
+        },
+        target: target(server, &table),
+        mapping: mapping(&[("id", 0), ("name", 1), ("price", 2), ("note", 3)]),
+        empty_as_null: true,
+        decimal_comma: true,
+    };
+    let preview = strata_core::import::preview(path.clone(), &request.options).unwrap();
+    assert_eq!(preview.encoding, "windows-1252");
+    assert_eq!(preview.delimiter, ";");
+    assert_eq!(
+        preview.headers,
+        ["Nummer", "Bezeichnung", "Preis", "Bemerkung"]
+    );
+    assert_eq!(preview.total_rows, 3);
+
+    let summary = session
+        .import_csv(&request, Box::new(|_| {}))
+        .await
+        .unwrap();
+    assert_eq!(summary.rows, 3);
+    run_in(
+        session,
+        "i",
+        "strata",
+        &format!("SELECT id, name, price, note FROM {schema}{table} ORDER BY id"),
+    )
+    .await;
+    let rows = session.fetch_rows("i", 0, 0, 10).unwrap();
+    assert_eq!(rows[0][1].as_deref(), Some("Käse"));
+    assert_eq!(rows[0][2].as_deref(), Some("1234.50"));
+    assert_eq!(rows[0][3].as_deref(), Some("zwei\r\nZeilen"));
+    assert_eq!(rows[1][1].as_deref(), Some("„Gruß“"));
+    assert_eq!(rows[1][2].as_deref(), Some("0.99"));
+    assert_eq!(rows[1][3], None);
+    assert_eq!(rows[2][1], None);
+    assert_eq!(rows[2][3].as_deref(), Some("sagt \"hallo\""));
+
+    let big = dir.path().join("big.csv");
+    let mut text = String::from("id,name\n");
+    for id in 100..1300 {
+        let id = if id == 1200 { 150 } else { id };
+        text.push_str(&format!("{id},Zeile {id}\n"));
+    }
+    std::fs::write(&big, text).unwrap();
+    let failing = CsvImport {
+        path: big.display().to_string(),
+        options: CsvOptions {
+            delimiter: Some(",".into()),
+            header: true,
+        },
+        target: target(server, &table),
+        mapping: mapping(&[("id", 0), ("name", 1)]),
+        empty_as_null: true,
+        decimal_comma: false,
+    };
+    let reported = Arc::new(Mutex::new(Vec::new()));
+    let err = session
+        .import_csv(
+            &failing,
+            Box::new({
+                let reported = reported.clone();
+                move |rows| reported.lock().unwrap().push(rows)
+            }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), "database");
+    assert!(err.to_string().contains("rows 1001 to 1200"), "{err}");
+    assert_eq!(*reported.lock().unwrap(), [500, 1000]);
+    run_in(
+        session,
+        "i",
+        "strata",
+        &format!("SELECT COUNT(*) FROM {schema}{table}"),
+    )
+    .await;
+    assert_eq!(
+        session.fetch_rows("i", 0, 0, 1).unwrap()[0][0].as_deref(),
+        Some("3"),
+        "a failed import must not leave rows behind"
+    );
+
+    let reader = open(server, Safety::ReadOnly).await;
+    assert_eq!(
+        reader
+            .session
+            .import_csv(&request, Box::new(|_| {}))
+            .await
+            .unwrap_err()
+            .kind(),
+        "read_only"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_csv_import() {
+    csv_import(MYSQL, "it_imp_mysql").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_csv_import() {
+    csv_import(MARIADB, "it_imp_mariadb").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_csv_import() {
+    csv_import(POSTGRES, "it_imp_pg").await;
 }

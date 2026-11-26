@@ -1,13 +1,17 @@
 use std::collections::HashSet;
-use std::io::Write;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::driver::{ColumnMeta, Row};
+use crate::driver::{ColumnMeta, Row, RowSink, SinkFlow};
 use crate::result::ResultSet;
+use crate::schema::TableTarget;
+use crate::sql::SortSpec;
 use crate::{CoreError, CoreResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -30,6 +34,194 @@ pub async fn export_result(
     })
     .await
     .map_err(|err| CoreError::InvalidInput(format!("export task failed: {err}")))?
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum ExportSource {
+    Query {
+        database: Option<String>,
+        sql: String,
+    },
+    Table {
+        target: TableTarget,
+        filter: Option<String>,
+        sort: Option<SortSpec>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ExportSummary {
+    pub rows: u64,
+    pub cancelled: bool,
+}
+
+pub const PROGRESS_EVERY: u64 = 10_000;
+
+fn temp_path(path: &Path) -> PathBuf {
+    let mut temp = path.as_os_str().to_owned();
+    temp.push(".tmp");
+    PathBuf::from(temp)
+}
+
+pub struct StreamWriter {
+    format: ExportFormat,
+    path: PathBuf,
+    temp: PathBuf,
+    out: BufWriter<File>,
+    names: Vec<String>,
+    rows: u64,
+    failure: Option<std::io::Error>,
+    cancel: Arc<AtomicBool>,
+    progress: Box<dyn Fn(u64) + Send + Sync>,
+}
+
+impl StreamWriter {
+    pub fn create(
+        format: ExportFormat,
+        path: PathBuf,
+        cancel: Arc<AtomicBool>,
+        progress: Box<dyn Fn(u64) + Send + Sync>,
+    ) -> CoreResult<Self> {
+        let temp = temp_path(&path);
+        let file = File::create(&temp).map_err(|err| CoreError::io(&temp, err))?;
+        Ok(Self {
+            format,
+            path,
+            temp,
+            out: BufWriter::with_capacity(1 << 20, file),
+            names: Vec::new(),
+            rows: 0,
+            failure: None,
+            cancel,
+            progress,
+        })
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        if self.failure.is_none()
+            && let Err(err) = self.out.write_all(bytes)
+        {
+            self.failure = Some(err);
+        }
+    }
+
+    pub fn finish(mut self) -> CoreResult<ExportSummary> {
+        if let Some(err) = self.failure.take() {
+            self.discard();
+            return Err(CoreError::io(&self.path, err));
+        }
+        if self.cancel.load(Ordering::SeqCst) {
+            self.discard();
+            return Ok(ExportSummary {
+                rows: self.rows,
+                cancelled: true,
+            });
+        }
+        if self.names.is_empty() {
+            self.discard();
+            return Err(CoreError::InvalidInput(
+                "the statement returned no result set to export".into(),
+            ));
+        }
+        let footer: &[u8] = match (self.format, self.rows) {
+            (ExportFormat::Csv, _) => b"",
+            (ExportFormat::Json, 0) => b"]\n",
+            (ExportFormat::Json, _) => b"\n]\n",
+        };
+        let result = self
+            .out
+            .write_all(footer)
+            .and_then(|()| self.out.flush())
+            .and_then(|()| self.out.get_ref().sync_all());
+        if let Err(err) = result {
+            self.discard();
+            return Err(CoreError::io(&self.temp, err));
+        }
+        let rows = self.rows;
+        let Self {
+            out, temp, path, ..
+        } = self;
+        drop(out);
+        std::fs::rename(&temp, &path).map_err(|err| CoreError::io(&path, err))?;
+        Ok(ExportSummary {
+            rows,
+            cancelled: false,
+        })
+    }
+
+    pub fn discard(&mut self) {
+        if let Err(err) = std::fs::remove_file(&self.temp) {
+            tracing::debug!(error = %err, "temporary export file could not be removed");
+        }
+    }
+}
+
+impl RowSink for StreamWriter {
+    fn columns(&mut self, columns: &[ColumnMeta]) {
+        if !self.names.is_empty() {
+            return;
+        }
+        self.names = unique_names(columns);
+        match self.format {
+            ExportFormat::Csv => {
+                let header: Vec<String> = columns
+                    .iter()
+                    .map(|column| csv_field(&column.name))
+                    .collect();
+                let line = format!("\u{feff}{}\r\n", header.join(","));
+                self.write(line.as_bytes());
+            }
+            ExportFormat::Json => {
+                self.names = self
+                    .names
+                    .iter()
+                    .map(|name| serde_json::Value::String(name.clone()).to_string())
+                    .collect();
+                self.write(b"[");
+            }
+        }
+    }
+
+    fn row(&mut self, row: Row) -> SinkFlow {
+        if self.cancel.load(Ordering::SeqCst) || self.failure.is_some() {
+            return SinkFlow::Stop;
+        }
+        let line = match self.format {
+            ExportFormat::Csv => {
+                let fields: Vec<String> = row
+                    .iter()
+                    .map(|cell| cell.as_deref().map(csv_field).unwrap_or_default())
+                    .collect();
+                format!("{}\r\n", fields.join(","))
+            }
+            ExportFormat::Json => {
+                let fields: Vec<String> = self
+                    .names
+                    .iter()
+                    .zip(&row)
+                    .map(|(name, cell)| {
+                        let value = match cell {
+                            Some(value) => serde_json::Value::String(value.clone()),
+                            None => serde_json::Value::Null,
+                        };
+                        format!("{name}: {value}")
+                    })
+                    .collect();
+                let prefix = if self.rows == 0 { "\n  {" } else { ",\n  {" };
+                format!("{prefix}{}}}", fields.join(", "))
+            }
+        };
+        self.write(line.as_bytes());
+        self.rows += 1;
+        if self.rows.is_multiple_of(PROGRESS_EVERY) {
+            (self.progress)(self.rows);
+        }
+        SinkFlow::Continue
+    }
 }
 
 fn write_file(path: &Path, bytes: &[u8]) -> CoreResult<()> {

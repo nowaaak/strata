@@ -11,9 +11,12 @@ use crate::driver::{
     CancelHandle, ColumnMeta, ConnectParams, Connection, DbError, Row, RowSink, ServerDetails,
     SinkFlow,
 };
+use crate::export::{ExportFormat, ExportSource, ExportSummary, StreamWriter};
+use crate::import::{self, CsvImport, ImportSummary};
 use crate::processes::{self, KillMode, ProcessInfo};
 use crate::profiles::{ConnectionProfile, Engine, PasswordUpdate, ProfileStore, Safety};
 use crate::result::ResultSet;
+use crate::routines::{self, DdlQuery, Routine, RoutineTarget};
 use crate::schema::{self, CompletionTable, DbObject, TableInfo, TableTarget};
 use crate::sql::{
     DdlAction, Dialect, RowChange, SqlStatement, TableQuery, change_statement, ddl_statement,
@@ -185,6 +188,7 @@ impl SessionManager {
             meta: tokio::sync::Mutex::new(HashMap::from([(meta_key, conn)])),
             tunnel,
             tabs: Mutex::new(HashMap::new()),
+            exports: Mutex::new(HashMap::new()),
         });
         let info = session.info();
         lock(&self.sessions).insert(session.id.clone(), session);
@@ -274,6 +278,7 @@ pub struct Session {
     meta: tokio::sync::Mutex<HashMap<String, Connection>>,
     tunnel: Option<SshTunnel>,
     tabs: Mutex<HashMap<String, Arc<Tab>>>,
+    exports: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
 
 #[derive(Default)]
@@ -531,6 +536,208 @@ impl Session {
         Ok(())
     }
 
+    pub async fn list_routines(
+        &self,
+        database: &str,
+        schema: Option<&str>,
+    ) -> CoreResult<Vec<Routine>> {
+        let sql = match self.dialect {
+            Dialect::MySql { .. } => routines::mysql_routines_sql(self.dialect, database),
+            Dialect::Postgres { .. } => {
+                routines::pg_routines_sql(self.dialect, schema.unwrap_or("public"))
+            }
+        };
+        let rows = self.meta_rows(Some(database), &sql).await?;
+        Ok(routines::parse_routines(self.dialect, rows))
+    }
+
+    pub async fn routine_ddl(&self, target: &RoutineTarget) -> CoreResult<String> {
+        let database = Some(target.database.as_str());
+        let missing = || {
+            CoreError::NotFound(format!(
+                "the definition of {} is not available, it may have been dropped or you lack the privilege to see it",
+                target.routine.name
+            ))
+        };
+        match routines::ddl_query(self.dialect, target)? {
+            DdlQuery::Show { sql, column } => {
+                let rows = self.meta_rows(database, &sql).await?;
+                rows.into_iter()
+                    .next()
+                    .and_then(|row| row.into_iter().nth(column).flatten())
+                    .map(|ddl| format!("{ddl};"))
+                    .ok_or_else(missing)
+            }
+            DdlQuery::Value(sql) => {
+                let rows = self.meta_rows(database, &sql).await?;
+                rows.into_iter()
+                    .next()
+                    .and_then(|row| row.into_iter().next().flatten())
+                    .ok_or_else(missing)
+            }
+            DdlQuery::Sequence(sql) => {
+                let rows = self.meta_rows(database, &sql).await?;
+                rows.first()
+                    .map(|row| routines::sequence_ddl(self.dialect, target, row))
+                    .ok_or_else(missing)
+            }
+        }
+    }
+
+    pub async fn export_full(
+        &self,
+        export_id: &str,
+        source: &ExportSource,
+        format: ExportFormat,
+        path: std::path::PathBuf,
+        progress: Box<dyn Fn(u64) + Send + Sync>,
+    ) -> CoreResult<ExportSummary> {
+        let (database, sql) = match source {
+            ExportSource::Query { database, sql } => (database.clone(), sql.clone()),
+            ExportSource::Table {
+                target,
+                filter,
+                sort,
+            } => (
+                Some(target.database.clone()),
+                select_statement(
+                    self.dialect,
+                    &target.qualified(self.dialect),
+                    &TableQuery {
+                        filter: filter.clone(),
+                        sort: sort.clone(),
+                        limit: u32::MAX,
+                    },
+                )?,
+            ),
+        };
+        let statements = split_statements(&sql, self.dialect);
+        let [statement] = statements.as_slice() else {
+            return Err(CoreError::InvalidInput(
+                "a full export needs exactly one statement".into(),
+            ));
+        };
+        if statement.writes {
+            return Err(CoreError::InvalidInput(
+                "only reading statements can be exported, a full export runs the statement again"
+                    .into(),
+            ));
+        }
+        let wanted = database.clone().or_else(|| self.details.database.clone());
+        let mut conn = Connection::connect(&self.params(wanted)).await?;
+        if self.dialect.is_mysql()
+            && let Some(database) = &database
+            && let Err(err) = conn.use_database(database).await
+        {
+            conn.close().await;
+            return Err(err.into());
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        lock(&self.exports).insert(export_id.to_string(), cancel.clone());
+        let handle = conn.cancel_handle();
+        let watcher = tokio::spawn({
+            let cancel = cancel.clone();
+            async move {
+                while !cancel.load(Ordering::SeqCst) {
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                }
+                if let Err(err) = handle.cancel().await {
+                    tracing::debug!(error = %err.message, "export cancel failed");
+                }
+            }
+        });
+        let outcome = match StreamWriter::create(format, path, cancel.clone(), progress) {
+            Ok(mut writer) => match conn.run(&statement.text, &mut writer).await {
+                Ok(_) => writer.finish(),
+                Err(_) if cancel.load(Ordering::SeqCst) => writer.finish(),
+                Err(err) => {
+                    writer.discard();
+                    Err(err.into())
+                }
+            },
+            Err(err) => Err(err),
+        };
+        watcher.abort();
+        lock(&self.exports).remove(export_id);
+        conn.close().await;
+        outcome
+    }
+
+    pub async fn import_csv(
+        &self,
+        request: &CsvImport,
+        progress: Box<dyn Fn(u32) + Send + Sync>,
+    ) -> CoreResult<ImportSummary> {
+        self.ensure_writable()?;
+        let info = self.describe_table(&request.target).await?;
+        let numeric = request
+            .mapping
+            .iter()
+            .map(|mapping| {
+                info.columns
+                    .iter()
+                    .find(|column| column.name == mapping.column)
+                    .map(|column| import::is_numeric_type(&column.data_type))
+                    .ok_or_else(|| {
+                        CoreError::NotFound(format!("column {} does not exist", mapping.column))
+                    })
+            })
+            .collect::<CoreResult<Vec<_>>>()?;
+        let path = std::path::PathBuf::from(&request.path);
+        let options = request.options.clone();
+        let parsed = tokio::task::spawn_blocking(move || import::read_csv(&path, &options))
+            .await
+            .map_err(|err| CoreError::InvalidInput(format!("reading the file failed: {err}")))??;
+        let mut records = parsed.records;
+        if request.options.header && !records.is_empty() {
+            records.remove(0);
+        }
+        if records.is_empty() {
+            return Err(CoreError::InvalidInput("the file contains no rows".into()));
+        }
+        let statements = import::insert_statements(self.dialect, request, &numeric, &records)?;
+        let total = records.len();
+        let mut conn =
+            Connection::connect(&self.params(Some(request.target.database.clone()))).await?;
+        let begin = if self.dialect.is_mysql() {
+            "START TRANSACTION"
+        } else {
+            "BEGIN"
+        };
+        let outcome = async {
+            conn.execute(begin).await?;
+            for (offset, statement) in &statements {
+                if let Err(err) = conn.execute(statement).await {
+                    let last = (offset + import::BATCH_ROWS).min(total);
+                    if let Err(rollback) = conn.execute("ROLLBACK").await {
+                        tracing::warn!(error = %rollback.message, "rollback failed");
+                    }
+                    return Err(CoreError::Database(format!(
+                        "rows {} to {last} were rejected, nothing was imported: {}",
+                        offset + 1,
+                        err.message
+                    )));
+                }
+                progress(
+                    u32::try_from((offset + import::BATCH_ROWS).min(total)).unwrap_or(u32::MAX),
+                );
+            }
+            conn.execute("COMMIT").await?;
+            Ok(ImportSummary {
+                rows: u32::try_from(total).unwrap_or(u32::MAX),
+            })
+        }
+        .await;
+        conn.close().await;
+        outcome
+    }
+
+    pub fn cancel_export(&self, export_id: &str) {
+        if let Some(flag) = lock(&self.exports).get(export_id) {
+            flag.store(true, Ordering::SeqCst);
+        }
+    }
+
     pub async fn list_processes(&self) -> CoreResult<Vec<ProcessInfo>> {
         let rows = self
             .meta_rows(None, processes::processes_sql(self.dialect))
@@ -603,11 +810,40 @@ impl Session {
                 .await?,
         );
         let editable_key = schema::editable_key(&columns, &keys);
+        let foreign_keys = schema::parse_foreign_keys(
+            self.meta_rows(database, &schema::foreign_keys_sql(self.dialect, target))
+                .await?,
+        );
         Ok(TableInfo {
             columns,
             keys,
             editable_key,
+            foreign_keys,
         })
+    }
+
+    pub fn equality_filter(
+        &self,
+        columns: &[String],
+        values: &[Option<String>],
+    ) -> CoreResult<String> {
+        if columns.is_empty() || columns.len() != values.len() {
+            return Err(CoreError::InvalidInput(
+                "every column needs exactly one value".into(),
+            ));
+        }
+        let parts = columns
+            .iter()
+            .zip(values)
+            .map(|(column, value)| {
+                let column = self.dialect.quote_ident(column);
+                match value {
+                    Some(value) => format!("{column} = {}", self.dialect.quote_literal(value)),
+                    None => format!("{column} IS NULL"),
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok(parts.join(" AND "))
     }
 
     pub async fn table_ddl(&self, target: &TableTarget) -> CoreResult<String> {

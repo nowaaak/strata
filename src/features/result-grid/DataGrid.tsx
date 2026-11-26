@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, ArrowUpRightIcon } from "lucide-react";
 import {
     useEffect,
     useRef,
@@ -55,6 +55,12 @@ export type GridEditor = {
     onOpenEditor: (row: number, col: number, value: string | null) => void;
 };
 
+export type GridLink = {
+    label: string;
+    columns: number[];
+    open: (values: (string | null)[]) => void;
+};
+
 type DataGridProps = {
     label: string;
     columns: ColumnMeta[];
@@ -63,6 +69,7 @@ type DataGridProps = {
     sort?: SortSpec | null;
     onSort?: (column: string) => void;
     editor?: GridEditor | null;
+    links?: GridLink[];
 };
 
 function bounds(selection: Selection): Bounds {
@@ -78,7 +85,16 @@ function clamp(value: number, min: number, max: number): number {
     return Math.min(max, Math.max(min, value));
 }
 
-export function DataGrid({ label, columns, rowCount, cache, sort, onSort, editor }: DataGridProps) {
+export function DataGrid({
+    label,
+    columns,
+    rowCount,
+    cache,
+    sort,
+    onSort,
+    editor,
+    links = [],
+}: DataGridProps) {
     const t = useT();
     const rowHeight = ROW_HEIGHTS[useSettings().data?.gridDensity ?? "normal"];
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -158,6 +174,19 @@ export function DataGrid({ label, columns, rowCount, cache, sort, onSort, editor
         rowVirtualizer.scrollToIndex(cell.row, { align: "auto" });
         columnVirtualizer.scrollToIndex(cell.col, { align: "auto" });
     };
+
+    const focusLinks = (() => {
+        const focus = selection?.focus;
+        if (!focus || focus.row >= rowCount) {
+            return [];
+        }
+        return links
+            .filter((link) => link.columns.includes(focus.col))
+            .map((link) => ({
+                link,
+                values: link.columns.map((col) => valueAt(focus.row, col) ?? null),
+            }));
+    })();
 
     const startEdit = (cell: CellPos) => {
         if (!editor || !editor.canEdit(cell.col)) {
@@ -472,6 +501,14 @@ export function DataGrid({ label, columns, rowCount, cache, sort, onSort, editor
                                         }}
                                     >
                                         <span className="truncate">{column.name}</span>
+                                        {links.some((link) =>
+                                            link.columns.includes(virtualColumn.index),
+                                        ) && (
+                                            <ArrowUpRightIcon
+                                                aria-hidden
+                                                className="size-3 shrink-0 text-primary"
+                                            />
+                                        )}
                                         {column.typeName && (
                                             <span className="truncate text-[11px] font-normal text-muted-foreground">
                                                 {column.typeName}
@@ -665,6 +702,17 @@ export function DataGrid({ label, columns, rowCount, cache, sort, onSort, editor
                     {t.grid.copyWithHeaders}
                     <ContextMenuShortcut>{t.grid.keys.copyWithHeaders}</ContextMenuShortcut>
                 </ContextMenuItem>
+                {focusLinks.length > 0 && <ContextMenuSeparator />}
+                {focusLinks.map(({ link, values }) => (
+                    <ContextMenuItem
+                        key={link.label}
+                        disabled={values.some((value) => value === null)}
+                        onSelect={() => link.open(values)}
+                    >
+                        <ArrowUpRightIcon />
+                        {link.label}
+                    </ContextMenuItem>
+                ))}
                 {editor && (
                     <>
                         <ContextMenuSeparator />

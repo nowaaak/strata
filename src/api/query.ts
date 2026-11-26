@@ -1,4 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
+import type { ExportSource } from "@/bindings/ExportSource";
+import type { ExportSummary } from "@/bindings/ExportSummary";
 import type { ExportFormat } from "@/bindings/ExportFormat";
 import type { QueryEvent } from "@/bindings/QueryEvent";
 import type { SqlStatement } from "@/bindings/SqlStatement";
@@ -68,3 +70,26 @@ export const exportResult = (
     format: ExportFormat,
     path: string,
 ) => call<number>("export_result", { sessionId, tabId, result, format, path });
+
+export const exportFull = (
+    sessionId: string,
+    exportId: string,
+    source: ExportSource,
+    format: ExportFormat,
+    path: string,
+    onProgress: (rows: number) => void,
+) => {
+    const progress = new Channel<number>();
+    progress.onmessage = onProgress;
+    return call<ExportSummary>("export_full", {
+        sessionId,
+        exportId,
+        source,
+        format,
+        path,
+        onProgress: progress,
+    });
+};
+
+export const cancelExport = (sessionId: string, exportId: string) =>
+    call<void>("cancel_export", { sessionId, exportId });

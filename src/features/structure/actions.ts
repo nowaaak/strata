@@ -17,6 +17,7 @@ export function verbOf(action: DdlAction): StructureVerb {
         case "drop_database":
         case "drop_schema":
         case "drop_object":
+        case "drop_routine":
             return "drop";
     }
 }
@@ -36,6 +37,10 @@ export function subjectOf(action: DdlAction): string {
         case "truncate_table":
         case "drop_object":
             return action.target.table;
+        case "drop_routine":
+            return action.target.routine.arguments !== null
+                ? `${action.target.routine.name}(${action.target.routine.arguments})`
+                : action.target.routine.name;
     }
 }
 
@@ -109,6 +114,8 @@ export function titleOf(text: Messages["structure"], action: DdlAction): string 
             return action.kind === "view"
                 ? text.title.drop_view(subject)
                 : text.title.drop_table(subject);
+        case "drop_routine":
+            return text.title.drop_routine(action.target.routine.kind, subject);
     }
 }
 
@@ -129,6 +136,8 @@ export function descriptionOf(text: Messages["structure"], action: DdlAction): s
             return text.description.truncate;
         case "drop_object":
             return text.description.drop;
+        case "drop_routine":
+            return text.description.drop_routine;
     }
 }
 

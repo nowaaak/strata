@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::Dialect;
+use crate::routines::{self, RoutineTarget};
 use crate::schema::{ObjectKind, TableTarget};
 use crate::{CoreError, CoreResult};
 
@@ -45,6 +46,9 @@ pub enum DdlAction {
         target: TableTarget,
         kind: ObjectKind,
     },
+    DropRoutine {
+        target: RoutineTarget,
+    },
 }
 
 impl DdlAction {
@@ -68,6 +72,7 @@ impl DdlAction {
             Self::RenameObject { target, .. }
             | Self::TruncateTable { target }
             | Self::DropObject { target, .. } => Some(&target.database),
+            Self::DropRoutine { target } => Some(&target.database),
         }
     }
 }
@@ -182,6 +187,10 @@ pub fn ddl_statement(dialect: Dialect, action: &DdlAction) -> CoreResult<String>
         DdlAction::DropObject { target, kind } => {
             target_names(target)?;
             format!("DROP {} {}", object_word(*kind), target.qualified(dialect))
+        }
+        DdlAction::DropRoutine { target } => {
+            name(&target.database)?;
+            routines::drop_statement(dialect, target)?
         }
     })
 }

@@ -132,10 +132,12 @@ export function ResultPanel({
     sessionId,
     tabId,
     exportName,
+    database,
 }: {
     sessionId: string;
     tabId: string;
     exportName: string;
+    database?: string | null;
 }) {
     const t = useT();
     const run = useRuns((state) => state.runs[tabId]);
@@ -248,6 +250,16 @@ export function ResultPanel({
                                 result={result.result}
                                 baseName={exportName}
                                 disabled={run.running}
+                                fullSource={(() => {
+                                    const statement = run.statements[result.statementIndex];
+                                    return statement && !statement.writes
+                                        ? {
+                                              kind: "query" as const,
+                                              database: database ?? null,
+                                              sql: statement.text,
+                                          }
+                                        : null;
+                                })()}
                             />
                         </>
                     )}

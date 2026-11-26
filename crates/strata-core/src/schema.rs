@@ -73,6 +73,17 @@ pub struct TableInfo {
     pub columns: Vec<ColumnInfo>,
     pub keys: Vec<TableKey>,
     pub editable_key: Option<Vec<String>>,
+    pub foreign_keys: Vec<ForeignKey>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ForeignKey {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub target: TableTarget,
+    pub target_columns: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -211,6 +222,50 @@ pub(crate) fn parse_keys(rows: Vec<Row>) -> Vec<TableKey> {
         .filter(|(key, usable)| *usable && !key.columns.is_empty())
         .map(|(key, _)| key)
         .collect()
+}
+
+pub(crate) fn foreign_keys_sql(dialect: Dialect, target: &TableTarget) -> String {
+    match dialect {
+        Dialect::MySql { .. } => format!(
+            "SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_SCHEMA, NULL, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = {} AND TABLE_NAME = {} AND REFERENCED_TABLE_NAME IS NOT NULL ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION",
+            dialect.quote_literal(&target.database),
+            dialect.quote_literal(&target.table)
+        ),
+        Dialect::Postgres { .. } => format!(
+            "SELECT c.conname, a.attname, current_database(), rn.nspname, rc.relname, ra.attname FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey, c.confkey) WITH ORDINALITY AS k(col, refcol, ord) JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.col JOIN pg_class rc ON rc.oid = c.confrelid JOIN pg_namespace rn ON rn.oid = rc.relnamespace JOIN pg_attribute ra ON ra.attrelid = c.confrelid AND ra.attnum = k.refcol WHERE c.conrelid = {} AND c.contype = 'f' ORDER BY c.conname, k.ord",
+            target.regclass(dialect)
+        ),
+    }
+}
+
+pub(crate) fn parse_foreign_keys(rows: Vec<Row>) -> Vec<ForeignKey> {
+    let mut keys: Vec<ForeignKey> = Vec::new();
+    for row in rows {
+        let cell = |index: usize| row.get(index).cloned().flatten();
+        let (Some(name), Some(column), Some(database), Some(table), Some(target_column)) =
+            (cell(0), cell(1), cell(2), cell(4), cell(5))
+        else {
+            continue;
+        };
+        let schema = cell(3);
+        match keys.iter_mut().find(|key| key.name == name) {
+            Some(key) => {
+                key.columns.push(column);
+                key.target_columns.push(target_column);
+            }
+            None => keys.push(ForeignKey {
+                name,
+                columns: vec![column],
+                target: TableTarget {
+                    database,
+                    schema,
+                    table,
+                },
+                target_columns: vec![target_column],
+            }),
+        }
+    }
+    keys
 }
 
 pub(crate) fn editable_key(columns: &[ColumnInfo], keys: &[TableKey]) -> Option<Vec<String>> {

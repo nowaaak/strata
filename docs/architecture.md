@@ -76,6 +76,22 @@ On PostgreSQL only what changed is emitted (rename, `TYPE ... USING col::type`, 
 
 Data types and default expressions are SQL fragments by design. They are rejected when they contain `;` or comment markers. Generated columns can only be dropped, and expression or partial indexes only deleted. Every change is written to the query history.
 
+## Routines, triggers, events and sequences
+
+`routines.rs` lists functions and procedures (`information_schema.ROUTINES`, `pg_proc` without extension members), triggers, MySQL events and PostgreSQL sequences in one query per schema. DDL comes from `SHOW CREATE ...` on MySQL and from `pg_get_functiondef`, `pg_get_triggerdef` and `pg_sequences` on PostgreSQL. PostgreSQL functions can be overloaded, so they are identified by name plus `pg_get_function_identity_arguments`, both for the DDL lookup and for `DROP FUNCTION name(args)`. The arguments come from the server but still pass the same fragment check as other SQL pieces.
+
+## Foreign key navigation
+
+`describe_table` also returns the foreign keys of a table, with their target table and columns. The grid marks those columns and offers "go to" in the cell context menu. The filter for the target table is built in the backend by `equality_filter`, so values are quoted with the rules of the session (backslash escapes, standard strings). The table tab then opens or refreshes with that filter.
+
+## Full export
+
+A full export runs the statement again on its own connection and streams every row into the file through a `RowSink`, so the one million row buffer does not apply and memory stays flat. Only a single reading statement is accepted, because the statement runs a second time. The file is written to `<name>.tmp` and renamed at the end. Cancelling sets a flag that stops the sink and sends a server side cancel, and the partial file is removed.
+
+## CSV import
+
+`import.rs` reads the file, strips a UTF-8 BOM and falls back to Windows-1252 when the bytes are not valid UTF-8, which is what Excel writes on German Windows. The delimiter is detected from the first lines outside quotes. The parser follows RFC 4180 (quotes, doubled quotes, line breaks inside fields). Rows are inserted in batches of 500 as literal values quoted for the session dialect, all inside one transaction on a separate connection. If a batch fails, everything is rolled back and the error names the row range. Empty fields can become NULL, and in number columns a decimal comma (`1.234,5`) can be converted. The conversion only touches values that contain a comma, so `1.5` stays `1.5`.
+
 ## Process list
 
 `list_processes` reads `information_schema.PROCESSLIST` on MySQL and MariaDB and `pg_stat_activity` (client backends only) on PostgreSQL, through the metadata connection. That connection marks itself as `own`, so the UI can label it and refuse to stop it. `kill_process` only accepts a numeric id and builds `KILL QUERY`, `KILL CONNECTION`, `pg_cancel_backend` or `pg_terminate_backend` from it. Read-only profiles can view the list but not stop anything. On PostgreSQL a `false` result means the process was not stopped and becomes an error. An interrupted `SLEEP()` ends without an error on MySQL and with error 1317 on MariaDB, both count as stopped.

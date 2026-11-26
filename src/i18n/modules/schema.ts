@@ -13,6 +13,23 @@ export const de = {
     ddlFailed: "DDL konnte nicht geladen werden",
     showData: "Daten anzeigen",
     selectInNewQuery: "SELECT in neuer Abfrage",
+    openDdl: "DDL in neuer Abfrage",
+    routinesFailed: "Routinen konnten nicht geladen werden",
+    triggerOn: (table: string) => `auf ${table}`,
+    routineGroups: {
+        function: "Funktionen",
+        procedure: "Prozeduren",
+        trigger: "Trigger",
+        event: "Events",
+        sequence: "Sequenzen",
+    },
+    routineKinds: {
+        function: "Funktion",
+        procedure: "Prozedur",
+        trigger: "Trigger",
+        event: "Event",
+        sequence: "Sequenz",
+    },
 };
 
 export const en: typeof de = {
@@ -30,4 +47,21 @@ export const en: typeof de = {
     ddlFailed: "The DDL could not be loaded",
     showData: "Show data",
     selectInNewQuery: "SELECT in new query",
+    openDdl: "DDL in new query",
+    routinesFailed: "Routines could not be loaded",
+    triggerOn: (table: string) => `on ${table}`,
+    routineGroups: {
+        function: "Functions",
+        procedure: "Procedures",
+        trigger: "Triggers",
+        event: "Events",
+        sequence: "Sequences",
+    },
+    routineKinds: {
+        function: "Function",
+        procedure: "Procedure",
+        trigger: "Trigger",
+        event: "Event",
+        sequence: "Sequence",
+    },
 };

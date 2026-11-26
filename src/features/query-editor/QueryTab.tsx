@@ -296,6 +296,7 @@ export function QueryTab({ tab }: { tab: Attached<QueryTabModel> }) {
                         sessionId={tab.sessionId}
                         tabId={tab.id}
                         exportName={tabTitle(tab, t)}
+                        database={tab.database}
                     />
                 </ResizablePanel>
             </ResizablePanelGroup>
