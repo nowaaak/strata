@@ -25,6 +25,7 @@ import { formatDateTime, formatDuration, formatRelative } from "@/features/resul
 import { useSettings } from "@/features/settings/useSettings";
 import { useWorkspace } from "@/features/workspace/workspaceStore";
 import { useT } from "@/i18n";
+import { modLabel } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
@@ -341,7 +342,7 @@ function HistoryBrowser({
                                 {state.tabId && (
                                     <Button
                                         size="sm"
-                                        title={text.applyHint}
+                                        title={text.applyHint(modLabel(t.common.ctrl))}
                                         onClick={() => apply(selected)}
                                     >
                                         <CornerDownLeftIcon />

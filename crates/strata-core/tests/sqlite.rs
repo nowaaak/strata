@@ -672,6 +672,7 @@ INSERT INTO position VALUES (1, 1), (2, 2)";
                 AlterOp::AddForeignKey {
                     name: "artikel_kunde".into(),
                     columns: vec!["kunde".into()],
+                    target_container: None,
                     target_table: "kunde".into(),
                     target_columns: vec!["id".into()],
                     on_delete: ForeignKeyRule::Restrict,
@@ -717,6 +718,7 @@ INSERT INTO position VALUES (1, 1), (2, 2)";
                 AlterOp::AddForeignKey {
                     name: "artikel_kunde".into(),
                     columns: vec!["kunde".into()],
+                    target_container: None,
                     target_table: "kunde".into(),
                     target_columns: vec!["id".into()],
                     on_delete: ForeignKeyRule::Restrict,

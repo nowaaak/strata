@@ -21,7 +21,7 @@ use crate::rebuild::{self, SqliteObjects};
 use crate::result::ResultSet;
 use crate::routines::{self, DdlQuery, Routine, RoutineKind, RoutineTarget};
 use crate::schema::{self, CompletionTable, DbObject, TableInfo, TableTarget};
-use crate::server::{self, ServerInfoKind, ServerSetting};
+use crate::server::{self, ServerInfoKind, ServerSetting, VariableChange};
 use crate::sql::{
     DdlAction, Dialect, RowChange, SqlStatement, TableQuery, change_statement, ddl_statement,
     select_statement, split_statements,
@@ -1013,6 +1013,72 @@ impl Session {
             .collect())
     }
 
+    async fn dump_sequences(
+        &self,
+        database: &str,
+        schema: &str,
+        options: &DumpOptions,
+    ) -> CoreResult<String> {
+        let sql = format!(
+            "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = {} AND c.relkind = 'S' AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype IN ('a', 'i')) ORDER BY c.relname",
+            self.dialect.quote_literal(schema)
+        );
+        let names = first_column(self.meta_rows(Some(database), &sql).await?);
+        let mut entries = Vec::new();
+        for name in names {
+            let qualified = self.dialect.qualified(&[schema, &name]);
+            let mut ddl = String::new();
+            if options.structure {
+                let target = RoutineTarget {
+                    database: database.to_string(),
+                    schema: Some(schema.to_string()),
+                    routine: Routine {
+                        kind: RoutineKind::Sequence,
+                        name: name.clone(),
+                        arguments: None,
+                        table: None,
+                        detail: None,
+                    },
+                };
+                let created = self.routine_ddl(&target).await?;
+                ddl.push_str(&created.replacen(
+                    "CREATE SEQUENCE ",
+                    "CREATE SEQUENCE IF NOT EXISTS ",
+                    1,
+                ));
+            }
+            if options.data {
+                let state = self
+                    .meta_rows(
+                        Some(database),
+                        &format!("SELECT last_value, is_called FROM {qualified}"),
+                    )
+                    .await?;
+                if let Some(row) = state.first()
+                    && let Some(last) = row.first().cloned().flatten()
+                    && last.chars().all(|c| c.is_ascii_digit() || c == '-')
+                {
+                    let called = row.get(1).cloned().flatten().as_deref() == Some("t");
+                    if !ddl.is_empty() {
+                        ddl.push('\n');
+                    }
+                    ddl.push_str(&format!(
+                        "SELECT setval({}, {last}, {called});",
+                        self.dialect.quote_literal(&qualified)
+                    ));
+                }
+            }
+            if !ddl.is_empty() {
+                entries.push(RoutineDump {
+                    name,
+                    drop: None,
+                    ddl,
+                });
+            }
+        }
+        Ok(dump::routine_block(self.dialect, "Sequences", &entries))
+    }
+
     async fn dump_routines(
         &self,
         options: &DumpOptions,
@@ -1133,6 +1199,13 @@ impl Session {
         } else {
             (String::new(), String::new())
         };
+        let sequences = match schema_name.as_deref() {
+            Some(schema) if options.structure || options.data => {
+                self.dump_sequences(&options.database, schema, options)
+                    .await?
+            }
+            _ => String::new(),
+        };
 
         let temp = {
             let mut temp = path.as_os_str().to_owned();
@@ -1182,6 +1255,7 @@ impl Session {
                 out.write_all(programs.as_bytes()).map_err(io)?;
                 programs_pending = false;
             }
+            out.write_all(sequences.as_bytes()).map_err(io)?;
             for object in tables.iter().chain(views.iter()) {
                 if cancel.load(Ordering::SeqCst) {
                     return Ok((done, rows, true));
@@ -1413,7 +1487,25 @@ impl Session {
         let rows = self
             .meta_rows(None, &server::server_info_sql(self.dialect, kind))
             .await?;
-        Ok(server::parse_server_info(rows))
+        let editable = self.dialect.is_mysql() && kind == ServerInfoKind::Variables;
+        Ok(server::parse_server_info(rows, editable))
+    }
+
+    pub fn preview_variable(&self, change: &VariableChange) -> CoreResult<Vec<String>> {
+        server::variable_sql(self.dialect, self.is_mariadb(), change)
+    }
+
+    pub async fn set_variable(&self, change: &VariableChange) -> CoreResult<Vec<String>> {
+        if self.read_only() {
+            return Err(CoreError::ReadOnly(
+                "this connection is read-only, server variables cannot be changed".into(),
+            ));
+        }
+        let statements = self.preview_variable(change)?;
+        for statement in &statements {
+            self.meta_rows(None, statement).await?;
+        }
+        Ok(statements)
     }
 
     pub async fn kill_process(&self, id: &str, mode: KillMode) -> CoreResult<()> {

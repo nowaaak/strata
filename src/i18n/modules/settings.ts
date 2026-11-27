@@ -16,7 +16,7 @@ export const de = {
         reset: "Standard",
         resetAll: "Alle zurücksetzen",
         changed: "geändert",
-        invalid: "Ein Kürzel braucht Strg oder Alt, oder eine F-Taste.",
+        invalid: (mod: string) => `Ein Kürzel braucht ${mod} oder Alt, oder eine F-Taste.`,
         conflict: (action: string) => `Schon belegt durch „${action}“.`,
         actions: {
             palette: "Befehlspalette",
@@ -88,7 +88,7 @@ export const en: typeof de = {
         reset: "Default",
         resetAll: "Reset all",
         changed: "changed",
-        invalid: "A shortcut needs Ctrl or Alt, or a function key.",
+        invalid: (mod: string) => `A shortcut needs ${mod} or Alt, or a function key.`,
         conflict: (action: string) => `Already used by “${action}”.`,
         actions: {
             palette: "Command palette",

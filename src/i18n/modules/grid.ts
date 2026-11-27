@@ -14,7 +14,12 @@ export const de = {
     copiedRows: (rows: number) => `${n(rows, "Zeile", "Zeilen")} kopiert`,
     editCell: (column: string) => `${column} bearbeiten`,
     loadFailed: "Zeilen konnten nicht geladen werden",
-    keys: { copy: "Strg+C", copyWithHeaders: "Strg+⇧+C", edit: "F2", delete: "Entf" },
+    keys: {
+        copy: (mod: string) => `${mod}+C`,
+        copyWithHeaders: (mod: string) => `${mod}+⇧+C`,
+        edit: "F2",
+        delete: "Entf",
+    },
 };
 
 export const en: typeof de = {
@@ -31,5 +36,10 @@ export const en: typeof de = {
     copiedRows: (rows: number) => `${nEn(rows, "row", "rows")} copied`,
     editCell: (column: string) => `Edit ${column}`,
     loadFailed: "Rows could not be loaded",
-    keys: { copy: "Ctrl+C", copyWithHeaders: "Ctrl+Shift+C", edit: "F2", delete: "Del" },
+    keys: {
+        copy: (mod: string) => `${mod}+C`,
+        copyWithHeaders: (mod: string) => `${mod}+Shift+C`,
+        edit: "F2",
+        delete: "Del",
+    },
 };

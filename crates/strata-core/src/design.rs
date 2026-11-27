@@ -155,6 +155,9 @@ pub enum AlterOp {
     AddForeignKey {
         name: String,
         columns: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        target_container: Option<String>,
         target_table: String,
         target_columns: Vec<String>,
         on_delete: ForeignKeyRule,
@@ -893,6 +896,7 @@ pub(crate) fn alter_statements(
             AlterOp::AddForeignKey {
                 name,
                 columns,
+                target_container,
                 target_table,
                 target_columns,
                 on_delete,
@@ -907,14 +911,12 @@ pub(crate) fn alter_statements(
                     ));
                 }
                 let key = dialect.quote_ident(identifier_name(name)?);
-                let referenced = dialect.qualified(&[
-                    if mysql {
-                        target.database.as_str()
-                    } else {
-                        schema
-                    },
-                    identifier_name(target_table)?,
-                ]);
+                let container = match target_container.as_deref() {
+                    Some(container) => identifier_name(container)?,
+                    None if mysql => target.database.as_str(),
+                    None => schema,
+                };
+                let referenced = dialect.qualified(&[container, identifier_name(target_table)?]);
                 let clause = format!(
                     "CONSTRAINT {key} FOREIGN KEY ({}) REFERENCES {referenced} ({}) ON DELETE {} ON UPDATE {}",
                     index_columns(dialect, columns)?,
@@ -1437,6 +1439,7 @@ mod tests {
         AlterOp::AddForeignKey {
             name: "orders_owner".into(),
             columns: vec!["label".into()],
+            target_container: None,
             target_table: "owners".into(),
             target_columns: vec!["code".into()],
             on_delete: ForeignKeyRule::SetNull,
@@ -1599,6 +1602,7 @@ mod tests {
         let mismatch = AlterOp::AddForeignKey {
             name: "k".into(),
             columns: vec!["a".into(), "b".into()],
+            target_container: None,
             target_table: "t".into(),
             target_columns: vec!["a".into()],
             on_delete: ForeignKeyRule::NoAction,

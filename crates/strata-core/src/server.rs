@@ -3,6 +3,7 @@ use ts_rs::TS;
 
 use crate::driver::Row;
 use crate::sql::Dialect;
+use crate::{CoreError, CoreResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -21,13 +22,24 @@ pub struct ServerSetting {
     pub category: Option<String>,
     pub description: Option<String>,
     pub changed: bool,
+    pub editable: bool,
+    pub restart: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct VariableChange {
+    pub name: String,
+    pub value: Option<String>,
+    pub persist: bool,
 }
 
 const MYSQL_VARIABLES: &str = "SHOW GLOBAL VARIABLES";
 
 const MYSQL_STATUS: &str = "SHOW GLOBAL STATUS";
 
-const PG_VARIABLES: &str = "SELECT name, COALESCE(current_setting(name, true), setting), category, short_desc, source NOT IN ('default', 'override', 'client', 'session') FROM pg_settings ORDER BY name";
+const PG_VARIABLES: &str = "SELECT name, COALESCE(current_setting(name, true), setting), category, short_desc, source NOT IN ('default', 'override', 'client', 'session'), context <> 'internal', context = 'postmaster' FROM pg_settings ORDER BY name";
 
 const PG_STATUS: &str = "SELECT key, value, category FROM (\
     SELECT 1 AS sort, 'version' AS key, version() AS value, 'Server' AS category \
@@ -120,7 +132,11 @@ fn cell(row: &Row, index: usize) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-pub(crate) fn parse_server_info(rows: Vec<Row>) -> Vec<ServerSetting> {
+fn truthy(value: Option<String>) -> bool {
+    matches!(value.as_deref(), Some("t" | "1" | "true"))
+}
+
+pub(crate) fn parse_server_info(rows: Vec<Row>, editable: bool) -> Vec<ServerSetting> {
     rows.iter()
         .filter_map(|row| {
             Some(ServerSetting {
@@ -128,10 +144,79 @@ pub(crate) fn parse_server_info(rows: Vec<Row>) -> Vec<ServerSetting> {
                 value: cell(row, 1).unwrap_or_default(),
                 category: cell(row, 2),
                 description: cell(row, 3),
-                changed: matches!(cell(row, 4).as_deref(), Some("t" | "1" | "true")),
+                changed: truthy(cell(row, 4)),
+                editable: if row.len() > 5 {
+                    truthy(cell(row, 5))
+                } else {
+                    editable
+                },
+                restart: truthy(cell(row, 6)),
             })
         })
         .collect()
+}
+
+fn variable_name(name: &str) -> CoreResult<&str> {
+    let name = name.trim();
+    let valid = !name.is_empty()
+        && name.len() <= 128
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.');
+    if !valid {
+        return Err(CoreError::InvalidInput(format!(
+            "{name:?} is not a variable name"
+        )));
+    }
+    Ok(name)
+}
+
+fn is_number(value: &str) -> bool {
+    let digits = value.strip_prefix('-').unwrap_or(value);
+    !digits.is_empty()
+        && digits.chars().filter(|c| *c == '.').count() <= 1
+        && digits.chars().all(|c| c.is_ascii_digit() || c == '.')
+        && !digits.starts_with('.')
+        && !digits.ends_with('.')
+}
+
+pub(crate) fn variable_sql(
+    dialect: Dialect,
+    mariadb: bool,
+    change: &VariableChange,
+) -> CoreResult<Vec<String>> {
+    let name = variable_name(&change.name)?;
+    match dialect {
+        Dialect::MySql { .. } => {
+            if change.persist && mariadb {
+                return Err(CoreError::InvalidInput(
+                    "MariaDB has no SET PERSIST, change the server configuration file instead"
+                        .into(),
+                ));
+            }
+            let scope = if change.persist { "PERSIST" } else { "GLOBAL" };
+            let value = match change.value.as_deref().map(str::trim) {
+                None => "DEFAULT".to_string(),
+                Some(value) if is_number(value) => value.to_string(),
+                Some(value) => dialect.quote_literal(value),
+            };
+            Ok(vec![format!("SET {scope} {name} = {value}")])
+        }
+        Dialect::Postgres { .. } => {
+            let quoted = dialect.quote_ident(name);
+            let statement = match change.value.as_deref() {
+                None => format!("ALTER SYSTEM RESET {quoted}"),
+                Some(value) => format!(
+                    "ALTER SYSTEM SET {quoted} = {}",
+                    dialect.quote_literal(value.trim())
+                ),
+            };
+            Ok(vec![statement, "SELECT pg_reload_conf()".to_string()])
+        }
+        Dialect::Sqlite => Err(CoreError::InvalidInput(
+            "SQLite pragmas only apply to one connection and are not changed here".into(),
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -147,11 +232,15 @@ mod tests {
 
     #[test]
     fn mysql_rows_have_name_and_value_only() {
-        let parsed = parse_server_info(vec![
-            row(&[Some("max_connections"), Some("151")]),
-            row(&[Some("init_connect"), Some("")]),
-            row(&[None, Some("x")]),
-        ]);
+        let parsed = parse_server_info(
+            vec![
+                row(&[Some("max_connections"), Some("151")]),
+                row(&[Some("init_connect"), Some("")]),
+                row(&[None, Some("x")]),
+            ],
+            true,
+        );
+        assert!(parsed[0].editable && !parsed[0].restart);
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0].name, "max_connections");
         assert_eq!(parsed[0].value, "151");
@@ -162,16 +251,41 @@ mod tests {
 
     #[test]
     fn postgres_rows_carry_category_description_and_source() {
-        let parsed = parse_server_info(vec![
-            row(&[
-                Some("shared_buffers"),
-                Some("128MB"),
-                Some("Resource Usage / Memory"),
-                Some("Sets the number of shared memory buffers used by the server."),
-                Some("t"),
-            ]),
-            row(&[Some("work_mem"), Some("4MB"), None, None, Some("f")]),
-        ]);
+        let parsed = parse_server_info(
+            vec![
+                row(&[
+                    Some("shared_buffers"),
+                    Some("128MB"),
+                    Some("Resource Usage / Memory"),
+                    Some("Sets the number of shared memory buffers used by the server."),
+                    Some("t"),
+                    Some("t"),
+                    Some("t"),
+                ]),
+                row(&[
+                    Some("work_mem"),
+                    Some("4MB"),
+                    None,
+                    None,
+                    Some("f"),
+                    Some("t"),
+                    Some("f"),
+                ]),
+                row(&[
+                    Some("block_size"),
+                    Some("8192"),
+                    None,
+                    None,
+                    Some("f"),
+                    Some("f"),
+                    Some("f"),
+                ]),
+            ],
+            false,
+        );
+        assert!(parsed[0].editable && parsed[0].restart);
+        assert!(parsed[1].editable && !parsed[1].restart);
+        assert!(!parsed[2].editable);
         assert_eq!(
             parsed[0].category.as_deref(),
             Some("Resource Usage / Memory")
@@ -187,5 +301,68 @@ mod tests {
                 assert!(!server_info_sql(dialect, kind).is_empty());
             }
         }
+    }
+
+    #[test]
+    fn variable_changes_per_dialect() {
+        let change = |name: &str, value: Option<&str>, persist: bool| VariableChange {
+            name: name.into(),
+            value: value.map(str::to_string),
+            persist,
+        };
+        assert_eq!(
+            variable_sql(
+                Dialect::MYSQL,
+                false,
+                &change("max_connections", Some(" 200 "), false)
+            )
+            .unwrap(),
+            ["SET GLOBAL max_connections = 200"]
+        );
+        assert_eq!(
+            variable_sql(
+                Dialect::MYSQL,
+                false,
+                &change("sql_mode", Some("ANSI_QUOTES"), true)
+            )
+            .unwrap(),
+            ["SET PERSIST sql_mode = 'ANSI_QUOTES'"]
+        );
+        assert_eq!(
+            variable_sql(
+                Dialect::MYSQL,
+                true,
+                &change("max_connections", None, false)
+            )
+            .unwrap(),
+            ["SET GLOBAL max_connections = DEFAULT"]
+        );
+        assert!(variable_sql(Dialect::MYSQL, true, &change("x", Some("1"), true)).is_err());
+        assert_eq!(
+            variable_sql(
+                Dialect::POSTGRES,
+                false,
+                &change("work_mem", Some("8MB"), false)
+            )
+            .unwrap(),
+            [
+                "ALTER SYSTEM SET \"work_mem\" = '8MB'",
+                "SELECT pg_reload_conf()"
+            ]
+        );
+        assert_eq!(
+            variable_sql(Dialect::POSTGRES, false, &change("work_mem", None, false)).unwrap(),
+            ["ALTER SYSTEM RESET \"work_mem\"", "SELECT pg_reload_conf()"]
+        );
+        assert!(variable_sql(Dialect::MYSQL, false, &change("x; DROP", Some("1"), false)).is_err());
+        assert!(
+            variable_sql(
+                Dialect::Sqlite,
+                false,
+                &change("foreign_keys", Some("1"), false)
+            )
+            .is_err()
+        );
+        assert!(is_number("-1.5") && !is_number("1.") && !is_number("1e3") && !is_number(""));
     }
 }

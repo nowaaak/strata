@@ -93,6 +93,8 @@ pub fn run() {
             commands::processes::list_processes,
             commands::processes::kill_process,
             commands::server::server_info,
+            commands::server::preview_server_variable,
+            commands::server::set_server_variable,
             commands::users::list_users,
             commands::users::user_detail,
             commands::users::preview_user_action,

@@ -17,7 +17,7 @@ import {
     tableDesign,
 } from "@/api/design";
 import { errorMessage } from "@/api/invoke";
-import { listObjects } from "@/api/schema";
+import { listDatabases, listObjects, listSchemas } from "@/api/schema";
 import { useUiStore, type DesignerRequest } from "@/app/uiStore";
 import type { Engine } from "@/bindings/Engine";
 import type { ForeignKeyRule } from "@/bindings/ForeignKeyRule";
@@ -388,6 +388,7 @@ function DesignerForm({
 
                 {request.mode === "edit" && (
                     <ForeignKeyEditor
+                        engine={engine}
                         sessionId={request.sessionId}
                         target={request.target}
                         keys={foreignKeys}
@@ -876,12 +877,14 @@ function RuleSelect({
 }
 
 function ForeignKeyEditor({
+    engine,
     sessionId,
     target,
     keys,
     columnNames,
     onChange,
 }: {
+    engine: Engine;
     sessionId: string;
     target: TableTarget;
     keys: ForeignKeyRow[];
@@ -893,26 +896,48 @@ function ForeignKeyEditor({
     const id = useId();
     const [name, setName] = useState("");
     const [picked, setPicked] = useState<string[]>([]);
+    const ownContainer = (engine === "postgres" ? target.schema : target.database) ?? "";
+    const [container, setContainer] = useState(ownContainer);
     const [targetTable, setTargetTable] = useState("");
     const [targetPicked, setTargetPicked] = useState<string[]>([]);
+    const referencedTarget: TableTarget =
+        engine === "postgres"
+            ? { database: target.database, schema: container, table: targetTable }
+            : engine === "mysql"
+              ? { database: container, schema: null, table: targetTable }
+              : { ...target, table: targetTable };
+    const sameTable =
+        targetTable === target.table && (engine === "sqlite" || container === ownContainer);
     const [onDelete, setOnDelete] = useState<ForeignKeyRule>("no_action");
     const [onUpdate, setOnUpdate] = useState<ForeignKeyRule>("no_action");
 
+    const containers = useQuery({
+        queryKey:
+            engine === "postgres"
+                ? ["schemas", sessionId, target.database]
+                : ["databases", sessionId],
+        queryFn: () =>
+            engine === "postgres"
+                ? listSchemas(sessionId, target.database)
+                : listDatabases(sessionId),
+        enabled: engine !== "sqlite",
+        staleTime: 60_000,
+    });
     const tables = useQuery({
-        queryKey: ["objects", sessionId, target.database, target.schema],
-        queryFn: () => listObjects(sessionId, target.database, target.schema),
+        queryKey: ["objects", sessionId, referencedTarget.database, referencedTarget.schema],
+        queryFn: () => listObjects(sessionId, referencedTarget.database, referencedTarget.schema),
+        enabled: referencedTarget.database !== "",
         staleTime: 60_000,
     });
     const referenced = useQuery({
-        queryKey: ["table-design", sessionId, { ...target, table: targetTable }],
-        queryFn: () => tableDesign(sessionId, { ...target, table: targetTable }),
-        enabled: targetTable !== "",
+        queryKey: ["table-design", sessionId, referencedTarget],
+        queryFn: () => tableDesign(sessionId, referencedTarget),
+        enabled: targetTable !== "" && !sameTable,
         staleTime: 0,
     });
-    const targetColumns =
-        targetTable === target.table
-            ? columnNames
-            : (referenced.data?.columns.map((column) => column.name) ?? []);
+    const targetColumns = sameTable
+        ? columnNames
+        : (referenced.data?.columns.map((column) => column.name) ?? []);
 
     const toggle = (key: ForeignKeyRow) =>
         key.original
@@ -931,6 +956,8 @@ function ForeignKeyEditor({
                 original: null,
                 name: name.trim(),
                 columns: picked,
+                targetContainer:
+                    engine === "sqlite" || container === ownContainer ? null : container,
                 targetTable,
                 targetColumns: targetPicked,
                 onDelete,
@@ -967,8 +994,11 @@ function ForeignKeyEditor({
                         >
                             <span className="min-w-40 font-mono text-xs">{key.name}</span>
                             <span className="flex-1 truncate font-mono text-xs text-muted-foreground">
-                                {key.columns.join(", ")} → {key.targetTable} (
-                                {key.targetColumns.join(", ")})
+                                {key.columns.join(", ")} →{" "}
+                                {key.targetContainer && key.targetContainer !== ownContainer
+                                    ? `${key.targetContainer}.${key.targetTable}`
+                                    : key.targetTable}{" "}
+                                ({key.targetColumns.join(", ")})
                             </span>
                             <span className="text-[0.6875rem] text-muted-foreground">
                                 {text.summary(text.rules[key.onDelete], text.rules[key.onUpdate])}
@@ -1007,6 +1037,44 @@ function ForeignKeyEditor({
                             className="h-7 w-56 font-mono text-xs"
                         />
                     </div>
+                    {engine !== "sqlite" && (
+                        <div className="flex flex-col gap-1.5">
+                            <span className="text-xs">
+                                {engine === "postgres" ? text.targetSchema : text.targetDatabase}
+                            </span>
+                            <Select
+                                value={container}
+                                onValueChange={(value) => {
+                                    setContainer(value);
+                                    setTargetTable("");
+                                    setTargetPicked([]);
+                                }}
+                            >
+                                <SelectTrigger
+                                    size="sm"
+                                    aria-label={
+                                        engine === "postgres"
+                                            ? text.targetSchema
+                                            : text.targetDatabase
+                                    }
+                                    className="h-7 w-44 font-mono text-xs"
+                                >
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {(containers.data ?? [ownContainer]).map((entry) => (
+                                        <SelectItem
+                                            key={entry}
+                                            value={entry}
+                                            className="font-mono text-xs"
+                                        >
+                                            {entry}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
                     <div className="flex flex-col gap-1.5">
                         <span className="text-xs">{text.targetTable}</span>
                         <Select

@@ -15,7 +15,7 @@ use strata_core::profiles::{
 use strata_core::routines::{RoutineKind, RoutineTarget};
 use strata_core::schema::{ObjectKind, TableTarget};
 use strata_core::secrets::MemorySecretStore;
-use strata_core::server::ServerInfoKind;
+use strata_core::server::{ServerInfoKind, ServerSetting, VariableChange};
 use strata_core::session::{QUERY_ROW_CAP, QueryEvent, Session, SessionManager, StatementOutcome};
 use strata_core::sql::{CellValue, DdlAction, RowChange, SortSpec, TableQuery};
 use strata_core::users::{GrantScope, RoleAttribute, UserAction, UserRef};
@@ -1191,6 +1191,7 @@ async fn designer_keys(server: Server, prefix: &str) {
         AlterOp::AddForeignKey {
             name: format!("{child}_ref"),
             columns: vec!["ref".into()],
+            target_container: None,
             target_table: parent.clone(),
             target_columns: vec!["code".into()],
             on_delete: ForeignKeyRule::Cascade,
@@ -1987,7 +1988,10 @@ async fn dump_roundtrip(server: Server, prefix: &str) {
          CREATE FUNCTION public.gross() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.name := upper(NEW.name); RETURN NEW; END $$;
          CREATE TRIGGER kunden_gross BEFORE INSERT ON public.kunden FOR EACH ROW EXECUTE FUNCTION public.gross();
          CREATE PROCEDURE public.leeren() LANGUAGE sql AS $$ DELETE FROM public.bestellungen WHERE false $$;
-         CREATE VIEW public.netto_umsatz AS SELECT public.netto(betrag) AS netto FROM public.bestellungen"
+         CREATE VIEW public.netto_umsatz AS SELECT public.netto(betrag) AS netto FROM public.bestellungen;
+         CREATE SEQUENCE public.rechnung_nr START 1000;
+         SELECT nextval('public.rechnung_nr');
+         SELECT nextval('public.rechnung_nr')"
     } else {
         "CREATE TABLE kunden (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(40) NOT NULL, foto BLOB);
          CREATE TABLE bestellungen (id INT AUTO_INCREMENT PRIMARY KEY, kunde_id INT NOT NULL, betrag DECIMAL(10,2), notiz TEXT, CONSTRAINT bestellungen_kunde FOREIGN KEY (kunde_id) REFERENCES kunden (id));
@@ -2075,6 +2079,20 @@ async fn dump_roundtrip(server: Server, prefix: &str) {
     );
     if postgres {
         assert_eq!(rows[0][1].as_deref(), Some("2"));
+    }
+    if postgres {
+        run_in(
+            session,
+            "r",
+            &restore,
+            "SELECT nextval('public.rechnung_nr')",
+        )
+        .await;
+        assert_eq!(
+            session.fetch_rows("r", 0, 0, 1).unwrap()[0][0].as_deref(),
+            Some("1002"),
+            "a standalone sequence must continue after the dumped value"
+        );
     }
     run_in(session, "r", &restore, "SELECT COUNT(*) FROM netto_umsatz").await;
     assert_eq!(
@@ -2667,4 +2685,248 @@ async fn postgres_users_and_grants() {
 #[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
 async fn postgres_18_users_and_grants() {
     users_and_grants(POSTGRES_18, "it_usr_pg18").await;
+}
+
+async fn foreign_key_elsewhere(server: Server, prefix: &str) {
+    let harness = open(server, Safety::Normal).await;
+    let session = &harness.session;
+    let postgres = server.engine == Engine::Postgres;
+    let other = format!("{prefix}_other");
+    let child = format!("{prefix}_child");
+    if postgres {
+        run_in(
+            session,
+            "x",
+            "strata",
+            &format!(
+                "DROP TABLE IF EXISTS public.{child}; DROP SCHEMA IF EXISTS {other} CASCADE; CREATE SCHEMA {other}; CREATE TABLE {other}.land (code CHAR(2) PRIMARY KEY); INSERT INTO {other}.land VALUES ('DE'); CREATE TABLE public.{child} (id INT PRIMARY KEY, land CHAR(2))"
+            ),
+        )
+        .await;
+    } else {
+        let _ = session
+            .run_ddl(&DdlAction::DropDatabase {
+                database: other.clone(),
+            })
+            .await;
+        session
+            .run_ddl(&DdlAction::CreateDatabase {
+                name: other.clone(),
+            })
+            .await
+            .unwrap();
+        run_in(
+            session,
+            "x",
+            &other,
+            "CREATE TABLE land (code CHAR(2) PRIMARY KEY); INSERT INTO land VALUES ('DE')",
+        )
+        .await;
+        run_in(
+            session,
+            "x",
+            "strata",
+            &format!("DROP TABLE IF EXISTS {child}; CREATE TABLE {child} (id INT PRIMARY KEY, land CHAR(2))"),
+        )
+        .await;
+    }
+    let target = target(server, &child);
+    session
+        .apply_alter(
+            &target,
+            &[AlterOp::AddForeignKey {
+                name: format!("{child}_land"),
+                columns: vec!["land".into()],
+                target_container: Some(other.clone()),
+                target_table: "land".into(),
+                target_columns: vec!["code".into()],
+                on_delete: ForeignKeyRule::NoAction,
+                on_update: ForeignKeyRule::NoAction,
+            }],
+        )
+        .await
+        .unwrap();
+    let design = session.table_design(&target).await.unwrap();
+    let key = &design.foreign_keys[0];
+    assert_eq!(key.target.table, "land");
+    if postgres {
+        assert_eq!(key.target.schema.as_deref(), Some(other.as_str()));
+    } else {
+        assert_eq!(key.target.database, other);
+    }
+    let schema = if postgres { "public." } else { "" };
+    let events = run(
+        session,
+        "x",
+        &format!("INSERT INTO {schema}{child} VALUES (1, 'XX')"),
+        QUERY_ROW_CAP,
+    )
+    .await;
+    assert!(
+        failure(&events).is_some(),
+        "the foreign key must be enforced"
+    );
+
+    run_in(
+        session,
+        "x",
+        "strata",
+        &format!("DROP TABLE {schema}{child}"),
+    )
+    .await;
+    if postgres {
+        run_in(
+            session,
+            "x",
+            "strata",
+            &format!("DROP SCHEMA {other} CASCADE"),
+        )
+        .await;
+    } else {
+        session
+            .run_ddl(&DdlAction::DropDatabase { database: other })
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_foreign_key_elsewhere() {
+    foreign_key_elsewhere(MYSQL, "it_xfk_mysql").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_foreign_key_elsewhere() {
+    foreign_key_elsewhere(MARIADB, "it_xfk_mariadb").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_foreign_key_elsewhere() {
+    foreign_key_elsewhere(POSTGRES, "it_xfk_pg").await;
+}
+
+async fn change_variables(server: Server) {
+    let harness = open(server, Safety::Normal).await;
+    let session = &harness.session;
+    let postgres = server.engine == Engine::Postgres;
+    let (name, value, expected) = if postgres {
+        ("work_mem", "8MB", "8MB")
+    } else {
+        ("max_connections", "173", "173")
+    };
+    let value_of = |settings: &[ServerSetting]| {
+        settings
+            .iter()
+            .find(|setting| setting.name == name)
+            .map(|setting| setting.value.clone())
+    };
+    let before = value_of(
+        &session
+            .server_info(ServerInfoKind::Variables)
+            .await
+            .unwrap(),
+    );
+    let variables = session
+        .server_info(ServerInfoKind::Variables)
+        .await
+        .unwrap();
+    let setting = variables
+        .iter()
+        .find(|setting| setting.name == name)
+        .unwrap();
+    assert!(setting.editable && !setting.restart, "{setting:?}");
+    if postgres {
+        let shared = variables
+            .iter()
+            .find(|setting| setting.name == "shared_buffers")
+            .unwrap();
+        assert!(shared.restart);
+        let block = variables
+            .iter()
+            .find(|setting| setting.name == "block_size")
+            .unwrap();
+        assert!(!block.editable);
+    }
+
+    let change = VariableChange {
+        name: name.into(),
+        value: Some(value.into()),
+        persist: false,
+    };
+    session.set_variable(&change).await.unwrap();
+    let mut after = None;
+    for _ in 0..20 {
+        after = value_of(
+            &session
+                .server_info(ServerInfoKind::Variables)
+                .await
+                .unwrap(),
+        );
+        if after.as_deref() == Some(expected) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(after.as_deref(), Some(expected));
+
+    let reader = open(server, Safety::ReadOnly).await;
+    assert_eq!(
+        reader
+            .session
+            .set_variable(&change)
+            .await
+            .unwrap_err()
+            .kind(),
+        "read_only"
+    );
+
+    session
+        .set_variable(&VariableChange {
+            name: name.into(),
+            value: None,
+            persist: false,
+        })
+        .await
+        .unwrap();
+    let mut restored = None;
+    for _ in 0..20 {
+        restored = value_of(
+            &session
+                .server_info(ServerInfoKind::Variables)
+                .await
+                .unwrap(),
+        );
+        if restored == before {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(restored, before, "DEFAULT or RESET must restore the value");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_change_variables() {
+    change_variables(MYSQL).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_change_variables() {
+    change_variables(MARIADB).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_change_variables() {
+    change_variables(POSTGRES).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_18_change_variables() {
+    change_variables(POSTGRES_18).await;
 }

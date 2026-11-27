@@ -22,6 +22,7 @@ import {
 import { ROW_HEIGHTS } from "@/features/settings/theme";
 import { useSettings } from "@/features/settings/useSettings";
 import { useT } from "@/i18n";
+import { modLabel } from "@/lib/shortcuts";
 import { isJsonDocument } from "@/lib/json";
 import { cn } from "@/lib/utils";
 import {
@@ -696,11 +697,15 @@ export function DataGrid({
             <ContextMenuContent className="w-60">
                 <ContextMenuItem disabled={!range} onSelect={() => void copy(false)}>
                     {t.grid.copy}
-                    <ContextMenuShortcut>{t.grid.keys.copy}</ContextMenuShortcut>
+                    <ContextMenuShortcut>
+                        {t.grid.keys.copy(modLabel(t.common.ctrl))}
+                    </ContextMenuShortcut>
                 </ContextMenuItem>
                 <ContextMenuItem disabled={!range} onSelect={() => void copy(true)}>
                     {t.grid.copyWithHeaders}
-                    <ContextMenuShortcut>{t.grid.keys.copyWithHeaders}</ContextMenuShortcut>
+                    <ContextMenuShortcut>
+                        {t.grid.keys.copyWithHeaders(modLabel(t.common.ctrl))}
+                    </ContextMenuShortcut>
                 </ContextMenuItem>
                 {focusLinks.length > 0 && <ContextMenuSeparator />}
                 {focusLinks.map(({ link, values }) => (

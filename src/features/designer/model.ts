@@ -42,6 +42,7 @@ export type ForeignKeyRow = {
     original: ForeignKeyDesign | null;
     name: string;
     columns: string[];
+    targetContainer: string | null;
     targetTable: string;
     targetColumns: string[];
     onDelete: ForeignKeyRule;
@@ -132,6 +133,7 @@ export function foreignKeyRows(design: TableDesign): ForeignKeyRow[] {
         original: key,
         name: key.name,
         columns: key.columns,
+        targetContainer: key.target.schema ?? key.target.database,
         targetTable: key.target.table,
         targetColumns: key.targetColumns,
         onDelete: key.onDelete,
@@ -332,7 +334,7 @@ export function alterOps(
     }
     for (const foreignKey of foreignKeys) {
         if (!foreignKey.original && !foreignKey.dropped) {
-            ops.push({
+            const op: AlterOp = {
                 op: "add_foreign_key",
                 name: foreignKey.name.trim(),
                 columns: foreignKey.columns,
@@ -340,7 +342,11 @@ export function alterOps(
                 target_columns: foreignKey.targetColumns,
                 on_delete: foreignKey.onDelete,
                 on_update: foreignKey.onUpdate,
-            });
+            };
+            if (foreignKey.targetContainer !== null) {
+                op.target_container = foreignKey.targetContainer;
+            }
+            ops.push(op);
         }
     }
     return ops;

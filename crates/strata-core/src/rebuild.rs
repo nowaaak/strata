@@ -354,11 +354,20 @@ pub(crate) fn statements(
             AlterOp::AddForeignKey {
                 name,
                 columns: list,
+                target_container,
                 target_table,
                 target_columns,
                 on_delete,
                 on_update,
             } => {
+                if target_container
+                    .as_deref()
+                    .is_some_and(|container| container != target.database)
+                {
+                    return Err(CoreError::InvalidInput(
+                        "SQLite foreign keys can only point to tables in the same file".into(),
+                    ));
+                }
                 if list.len() != target_columns.len() {
                     return Err(CoreError::InvalidInput(
                         "a foreign key needs as many referenced columns as columns".into(),
@@ -737,6 +746,7 @@ mod tests {
                 AlterOp::AddForeignKey {
                     name: "artikel_kunde".into(),
                     columns: vec!["kunde".into()],
+                    target_container: None,
                     target_table: "kunde".into(),
                     target_columns: vec!["id".into()],
                     on_delete: ForeignKeyRule::Restrict,

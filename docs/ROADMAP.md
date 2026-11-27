@@ -4,14 +4,11 @@ Effort: S is up to a day, M a few days, L a week or more.
 
 ## Later
 
-| Item                                                 | Why                                                                    | Effort |
-| ---------------------------------------------------- | ---------------------------------------------------------------------- | ------ |
-| Standalone PostgreSQL sequences in the SQL dump      | Only sequences of serial columns are dumped today.                     | S      |
-| Change server variables                              | The view only reads them, `SET GLOBAL` and `ALTER SYSTEM` are missing. | M      |
-| Foreign keys to tables in other schemas or databases | The designer only offers tables of the same database or schema.        | S      |
+Nothing is planned right now. New items come from using Strata day to day.
 
 ## Done
 
+- Standalone PostgreSQL sequences in the SQL dump, changing server variables (`SET GLOBAL`, `SET PERSIST`, `ALTER SYSTEM`), foreign keys to tables in other schemas or databases and ⌘ in the remaining macOS hints. Tested against MySQL, MariaDB and PostgreSQL 17 and 18.
 - SQLite table rebuild in the designer for type, NULL, default, keys and column order, PostgreSQL passwords hashed with SCRAM-SHA-256 before they leave Strata, and release builds for macOS (Apple silicon and Intel) and Linux next to Windows, with CI running clippy and the tests on all three systems.
 - Users and privileges for MySQL, MariaDB and PostgreSQL with masked passwords, role attributes and memberships. Tested against MySQL, MariaDB and PostgreSQL 17 and 18 by logging in as the new user.
 - SQLite files with tree, queries, editing, ER diagram, dump, execution plans, pragmas and a designer limited to what SQLite can change in place, and an ER diagram for every engine. Tested against MySQL, MariaDB, PostgreSQL 17 and 18 and SQLite.
@@ -35,7 +32,6 @@ Effort: S is up to a day, M a few days, L a week or more.
 ## Known limitations
 
 - macOS and Linux are only built and tested in CI, not on a real machine yet. The macOS app is not signed with an Apple developer certificate, so the first start needs right click, Open.
-- A few hints still name Ctrl instead of ⌘ on macOS (copy in the grid, undo after applying a history entry, the shortcut rule in the settings). The shortcuts themselves use ⌘.
 - `SELECT ... FOR UPDATE` and `SELECT ... INTO` count as writes. They trigger the confirmation and are blocked on read-only connections.
 - For PostgreSQL Strata prepares each statement before running it to read column types. Inside an explicit transaction, a statement that fails to prepare aborts the transaction even if the simple protocol would have run it. This should be rare.
 - A result keeps at most one million rows in memory.

@@ -54,7 +54,7 @@ export function ShortcutSettings({
                 return;
             }
             if (!isUsableShortcut(combo)) {
-                setError({ action: recording, message: text.invalid });
+                setError({ action: recording, message: text.invalid(modLabel(t.common.ctrl)) });
                 return;
             }
             const taken = conflictOf(current, recording, combo);

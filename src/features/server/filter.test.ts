@@ -11,6 +11,8 @@ const setting = (
     category: null,
     description: null,
     changed: false,
+    editable: false,
+    restart: false,
     ...extra,
 });
 
