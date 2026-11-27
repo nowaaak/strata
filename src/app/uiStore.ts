@@ -77,6 +77,8 @@ export type UiState = {
     setServerInfoSession: (sessionId: string | null) => void;
     erRequest: ErRequest;
     setErRequest: (request: ErRequest) => void;
+    usersSession: string | null;
+    setUsersSession: (sessionId: string | null) => void;
     historyDialog: HistoryDialogState;
     setHistoryDialog: (state: HistoryDialogState) => void;
     hostKeyPrompt: HostKeyPrompt;
@@ -119,6 +121,8 @@ export const useUiStore = create<UiState>((set, get) => ({
     setServerInfoSession: (serverInfoSession) => set({ serverInfoSession, paletteOpen: false }),
     erRequest: null,
     setErRequest: (erRequest) => set({ erRequest, paletteOpen: false }),
+    usersSession: null,
+    setUsersSession: (usersSession) => set({ usersSession, paletteOpen: false }),
     historyDialog: null,
     setHistoryDialog: (historyDialog) => set({ historyDialog, paletteOpen: false }),
     hostKeyPrompt: null,

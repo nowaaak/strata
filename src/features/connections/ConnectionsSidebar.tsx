@@ -398,6 +398,15 @@ function ProfileNode({
                             {t.processes.menu}
                         </ContextMenuItem>
                     )}
+                    {session.engine !== "sqlite" && (
+                        <ContextMenuItem
+                            onSelect={() =>
+                                useUiStore.getState().setUsersSession(session.sessionId)
+                            }
+                        >
+                            {t.users.menu}
+                        </ContextMenuItem>
+                    )}
                     <ContextMenuItem
                         onSelect={() =>
                             useUiStore.getState().setServerInfoSession(session.sessionId)

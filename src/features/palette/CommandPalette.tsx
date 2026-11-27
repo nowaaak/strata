@@ -14,6 +14,7 @@ import {
     SunIcon,
     Table2Icon,
     UnplugIcon,
+    UsersIcon,
     WandSparklesIcon,
     type LucideIcon,
 } from "lucide-react";
@@ -129,6 +130,15 @@ function useCommands(): Command[] {
                                       useUiStore
                                           .getState()
                                           .setProcessListSession(session.sessionId),
+                              },
+                              {
+                                  id: `users:${profile.id}`,
+                                  label: t.users.palette(profile.name),
+                                  group: "connections" as const,
+                                  icon: UsersIcon,
+                                  keywords: profile.group ?? undefined,
+                                  run: () =>
+                                      useUiStore.getState().setUsersSession(session.sessionId),
                               },
                           ]),
                     {

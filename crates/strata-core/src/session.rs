@@ -26,6 +26,7 @@ use crate::sql::{
     select_statement, split_statements,
 };
 use crate::ssh::SshTunnel;
+use crate::users::{self, UserAccount, UserAction, UserDetail, UserRef};
 use crate::{CoreError, CoreResult};
 
 pub const QUERY_ROW_CAP: usize = 1_000_000;
@@ -1222,6 +1223,70 @@ impl Session {
         if let Some(flag) = lock(&self.exports).get(export_id) {
             flag.store(true, Ordering::SeqCst);
         }
+    }
+
+    pub async fn list_users(&self) -> CoreResult<Vec<UserAccount>> {
+        let rows = self
+            .meta_rows(None, users::list_sql(self.dialect, self.is_mariadb())?)
+            .await?;
+        Ok(users::parse_users(rows))
+    }
+
+    pub async fn user_detail(&self, user: &UserRef) -> CoreResult<UserDetail> {
+        let accounts = self.list_users().await?;
+        let account = accounts
+            .into_iter()
+            .find(|account| {
+                account.name == user.name
+                    && (self.dialect.is_postgres() || account.host == user.host)
+            })
+            .ok_or_else(|| CoreError::NotFound(format!("user {} does not exist", user.name)))?;
+        let grants = self
+            .meta_rows(None, &users::grants_sql(self.dialect, user)?)
+            .await?;
+        let statements = if self.dialect.is_mysql() {
+            let sql = format!("SHOW GRANTS FOR {}", users::account(self.dialect, user)?);
+            self.meta_rows(None, &sql)
+                .await?
+                .into_iter()
+                .filter_map(|row| row.into_iter().next().flatten())
+                .map(|statement| users::mask_identified(&statement))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Ok(UserDetail {
+            account,
+            grants: users::parse_grants(grants),
+            statements,
+        })
+    }
+
+    pub fn preview_user_action(&self, action: &UserAction) -> CoreResult<Vec<String>> {
+        Ok(users::user_sql(self.dialect, action)?.preview)
+    }
+
+    pub async fn run_user_action(&self, action: &UserAction) -> CoreResult<Vec<String>> {
+        if self.read_only() {
+            return Err(CoreError::ReadOnly(
+                "this connection is read-only, users and privileges cannot be changed".into(),
+            ));
+        }
+        let sql = users::user_sql(self.dialect, action)?;
+        let database = self.details.database.clone().unwrap_or_default();
+        let secret = action.secret();
+        self.run_structure(&database, &sql.statements)
+            .await
+            .map_err(|err| match err {
+                CoreError::Database(message) => {
+                    CoreError::Database(users::mask_secret(&message, secret))
+                }
+                CoreError::Connection(message) => {
+                    CoreError::Connection(users::mask_secret(&message, secret))
+                }
+                other => other,
+            })?;
+        Ok(sql.preview)
     }
 
     pub async fn list_processes(&self) -> CoreResult<Vec<ProcessInfo>> {

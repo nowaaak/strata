@@ -13,4 +13,5 @@ pub mod sessions;
 pub mod settings;
 pub mod snippets;
 pub mod updater;
+pub mod users;
 pub mod workspace;

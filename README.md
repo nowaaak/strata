@@ -16,6 +16,7 @@ A fast, modern desktop client for MySQL, MariaDB, PostgreSQL and SQLite. Built w
 - JSON in the cell editor: highlighted, formatted or compact, checked while typing. Numbers and strings are never rewritten, and a value stored compact is saved compact again
 - Process list per connection with auto refresh, cancel a running query or end a connection
 - Server variables and status values per connection, searchable, with changed PostgreSQL settings marked
+- Users and privileges: create, lock and delete users or roles, change passwords, PostgreSQL role attributes and memberships, and grant or revoke privileges globally, per database, schema or table. Passwords are masked in the SQL preview, the history and the log
 - Table designer: add, rename, retype, reorder (MySQL, MariaDB) and drop columns, change NULL, defaults, auto increment and comments, change the primary key, add and drop indexes and foreign keys, or create a new table with its primary key. Everything is shown as SQL before it runs
 - Create, rename, empty and delete databases, PostgreSQL schemas, tables and views from the schema tree. Every change shows the exact SQL first, deleting a database asks for its name, and a new table starts from a SQL template
 - Export to CSV and JSON, either the loaded rows or the complete result streamed straight to the file, with progress and cancel

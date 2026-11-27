@@ -18,6 +18,7 @@ use strata_core::secrets::MemorySecretStore;
 use strata_core::server::ServerInfoKind;
 use strata_core::session::{QUERY_ROW_CAP, QueryEvent, Session, SessionManager, StatementOutcome};
 use strata_core::sql::{CellValue, DdlAction, RowChange, SortSpec, TableQuery};
+use strata_core::users::{GrantScope, RoleAttribute, UserAction, UserRef};
 
 #[derive(Clone, Copy)]
 struct Server {
@@ -2353,4 +2354,317 @@ async fn postgres_schema_graph() {
 #[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
 async fn postgres_18_schema_graph() {
     schema_graph(POSTGRES_18, "it_graph_pg18").await;
+}
+
+async fn connect_as(server: Server, user: &str, password: &str) -> Result<Harness, String> {
+    let dir = tempfile::tempdir().unwrap();
+    let profiles = Arc::new(
+        ProfileStore::load(
+            dir.path().join("profiles.json"),
+            Arc::new(MemorySecretStore::default()),
+        )
+        .await
+        .unwrap(),
+    );
+    let profile = profiles
+        .save(
+            ConnectionProfile {
+                id: String::new(),
+                name: "as".into(),
+                engine: server.engine,
+                host: "127.0.0.1".into(),
+                port: server.port,
+                user: user.into(),
+                database: Some("strata".into()),
+                tls: TlsMode::Disabled,
+                color: ProfileColor::None,
+                safety: Safety::Normal,
+                ask_password: false,
+                group: None,
+                ssh: None,
+            },
+            PasswordUpdate::Set {
+                value: password.into(),
+            },
+            PasswordUpdate::Keep,
+        )
+        .await
+        .unwrap();
+    let manager = SessionManager::new(profiles);
+    let info = manager
+        .open(&profile.id, None)
+        .await
+        .map_err(|err| err.to_string())?;
+    let session = manager.get(&info.session_id).unwrap();
+    Ok(Harness {
+        _dir: dir,
+        manager,
+        session,
+    })
+}
+
+async fn users_and_grants(server: Server, prefix: &str) {
+    let harness = open(server, Safety::Normal).await;
+    let session = &harness.session;
+    let postgres = server.engine == Engine::Postgres;
+    let schema = if postgres { "public." } else { "" };
+    let table = format!("{prefix}_t");
+    let name = format!("{prefix}_user");
+    let first = "erst'es Passwort";
+    let user = UserRef {
+        name: name.clone(),
+        host: (!postgres).then(|| "%".to_string()),
+    };
+    let _ = session
+        .run_user_action(&UserAction::Drop { user: user.clone() })
+        .await;
+    run_in(
+        session,
+        "u",
+        "strata",
+        &format!(
+            "DROP TABLE IF EXISTS {schema}{table}; CREATE TABLE {schema}{table} (id INT PRIMARY KEY); INSERT INTO {schema}{table} VALUES (1)"
+        ),
+    )
+    .await;
+
+    let create = UserAction::Create {
+        user: user.clone(),
+        password: Some(first.into()),
+        can_login: true,
+    };
+    let preview = session.preview_user_action(&create).unwrap();
+    assert!(!preview.join(" ").contains("Passwort"), "{preview:?}");
+    session.run_user_action(&create).await.unwrap();
+    let listed = session.list_users().await.unwrap();
+    let account = listed
+        .iter()
+        .find(|account| account.name == name)
+        .expect("the new user must be listed");
+    assert!(account.can_login && !account.superuser, "{account:?}");
+
+    let scope = if postgres {
+        GrantScope::AllTables {
+            schema: "public".into(),
+        }
+    } else {
+        GrantScope::Database {
+            database: "strata".into(),
+        }
+    };
+    session
+        .run_user_action(&UserAction::Grant {
+            user: user.clone(),
+            scope: scope.clone(),
+            privileges: vec!["SELECT".into()],
+            grant_option: false,
+        })
+        .await
+        .unwrap();
+    let detail = session.user_detail(&user).await.unwrap();
+    assert!(
+        detail
+            .grants
+            .iter()
+            .any(|grant| grant.privileges.contains(&"SELECT".to_string())),
+        "{detail:?}"
+    );
+    if !postgres {
+        assert!(
+            detail
+                .statements
+                .iter()
+                .any(|statement| statement.contains("GRANT SELECT ON `strata`.*")),
+            "{:?}",
+            detail.statements
+        );
+    }
+
+    let guest = connect_as(server, &name, first).await.unwrap();
+    let events = run(
+        &guest.session,
+        "g",
+        &format!("SELECT * FROM {schema}{table}"),
+        QUERY_ROW_CAP,
+    )
+    .await;
+    assert_eq!(failure(&events), None);
+    let events = run(
+        &guest.session,
+        "g",
+        &format!("INSERT INTO {schema}{table} VALUES (2)"),
+        QUERY_ROW_CAP,
+    )
+    .await;
+    assert!(failure(&events).is_some(), "the user may only read");
+    drop(guest);
+
+    session
+        .run_user_action(&UserAction::SetPassword {
+            user: user.clone(),
+            password: "zweites".into(),
+        })
+        .await
+        .unwrap();
+    assert!(connect_as(server, &name, first).await.is_err());
+    assert!(connect_as(server, &name, "zweites").await.is_ok());
+
+    session
+        .run_user_action(&UserAction::SetLogin {
+            user: user.clone(),
+            enabled: false,
+        })
+        .await
+        .unwrap();
+    assert!(
+        connect_as(server, &name, "zweites").await.is_err(),
+        "a locked user must not log in"
+    );
+    let account = session
+        .list_users()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|account| account.name == name)
+        .unwrap();
+    assert!(!account.can_login);
+
+    if postgres {
+        let group = format!("{prefix}_group");
+        let group_ref = UserRef {
+            name: group.clone(),
+            host: None,
+        };
+        let _ = session
+            .run_user_action(&UserAction::Drop {
+                user: group_ref.clone(),
+            })
+            .await;
+        session
+            .run_user_action(&UserAction::Create {
+                user: group_ref.clone(),
+                password: None,
+                can_login: false,
+            })
+            .await
+            .unwrap();
+        session
+            .run_user_action(&UserAction::AddMember {
+                user: user.clone(),
+                role: group.clone(),
+            })
+            .await
+            .unwrap();
+        session
+            .run_user_action(&UserAction::SetAttribute {
+                user: user.clone(),
+                attribute: RoleAttribute::CreateDb,
+                enabled: true,
+            })
+            .await
+            .unwrap();
+        let detail = session.user_detail(&user).await.unwrap();
+        assert_eq!(detail.account.member_of, std::slice::from_ref(&group));
+        assert_eq!(detail.account.attributes, [RoleAttribute::CreateDb]);
+        session
+            .run_user_action(&UserAction::RemoveMember {
+                user: user.clone(),
+                role: group.clone(),
+            })
+            .await
+            .unwrap();
+        session
+            .run_user_action(&UserAction::Drop { user: group_ref })
+            .await
+            .unwrap();
+    }
+
+    session
+        .run_user_action(&UserAction::Revoke {
+            user: user.clone(),
+            scope,
+            privileges: vec!["SELECT".into()],
+        })
+        .await
+        .unwrap();
+    let detail = session.user_detail(&user).await.unwrap();
+    assert!(detail.grants.is_empty(), "{:?}", detail.grants);
+
+    let reader = open(server, Safety::ReadOnly).await;
+    assert_eq!(
+        reader
+            .session
+            .run_user_action(&UserAction::Drop { user: user.clone() })
+            .await
+            .unwrap_err()
+            .kind(),
+        "read_only"
+    );
+
+    if postgres {
+        run_in(
+            session,
+            "u",
+            "strata",
+            &format!(
+                "GRANT SELECT ON {schema}{table} TO \"{name}\"; ALTER TABLE {schema}{table} OWNER TO \"{name}\""
+            ),
+        )
+        .await;
+    }
+    session
+        .run_user_action(&UserAction::Drop { user: user.clone() })
+        .await
+        .unwrap();
+    assert!(
+        !session
+            .list_users()
+            .await
+            .unwrap()
+            .iter()
+            .any(|account| account.name == name)
+    );
+    let events = run(
+        session,
+        "u",
+        &format!("SELECT count(*) FROM {schema}{table}"),
+        QUERY_ROW_CAP,
+    )
+    .await;
+    assert_eq!(
+        failure(&events),
+        None,
+        "owned objects must survive the drop"
+    );
+    run_in(
+        session,
+        "u",
+        "strata",
+        &format!("DROP TABLE {schema}{table}"),
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mysql_users_and_grants() {
+    users_and_grants(MYSQL, "it_usr_mysql").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn mariadb_users_and_grants() {
+    users_and_grants(MARIADB, "it_usr_mariadb").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_users_and_grants() {
+    users_and_grants(POSTGRES, "it_usr_pg").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs docker compose -f docker-compose.test.yml up -d"]
+async fn postgres_18_users_and_grants() {
+    users_and_grants(POSTGRES_18, "it_usr_pg18").await;
 }

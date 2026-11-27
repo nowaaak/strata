@@ -19,6 +19,7 @@ pub mod settings;
 pub mod snippets;
 pub mod sql;
 pub mod ssh;
+pub mod users;
 pub mod workspace;
 
 pub use error::{CoreError, CoreResult};
