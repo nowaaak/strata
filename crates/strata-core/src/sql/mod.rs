@@ -8,6 +8,7 @@ mod table;
 pub use ddl::{DdlAction, ddl_statement};
 pub(crate) use ddl::{name as identifier_name, target_names};
 pub use edit::{CellValue, RowChange, change_statement};
+pub(crate) use split::keywords;
 pub use split::{SqlStatement, is_write, split_statements};
 pub use table::{SortSpec, TableQuery, select_statement};
 

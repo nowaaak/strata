@@ -6,7 +6,7 @@ export const de = {
         close: "Schließen",
     },
     welcome: {
-        empty: "Lege deine erste Verbindung zu MySQL, MariaDB oder PostgreSQL an.",
+        empty: "Lege deine erste Verbindung zu MySQL, MariaDB, PostgreSQL oder einer SQLite-Datei an.",
         ready: "Wähle links eine Verbindung, um Abfragen und Tabellen zu öffnen.",
         newConnection: "Neue Verbindung",
         palette: "Befehle und Tabellen suchen",
@@ -43,7 +43,7 @@ export const en: typeof de = {
         close: "Close",
     },
     welcome: {
-        empty: "Create your first connection to MySQL, MariaDB or PostgreSQL.",
+        empty: "Create your first connection to MySQL, MariaDB, PostgreSQL or a SQLite file.",
         ready: "Pick a connection on the left to open queries and tables.",
         newConnection: "New connection",
         palette: "Search commands and tables",

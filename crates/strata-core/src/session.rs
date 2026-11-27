@@ -17,6 +17,7 @@ use crate::graph::{self, SchemaGraph};
 use crate::import::{self, CsvImport, ImportSummary};
 use crate::processes::{self, KillMode, ProcessInfo};
 use crate::profiles::{ConnectionProfile, Engine, PasswordUpdate, ProfileStore, Safety};
+use crate::rebuild::{self, SqliteObjects};
 use crate::result::ResultSet;
 use crate::routines::{self, DdlQuery, Routine, RoutineKind, RoutineTarget};
 use crate::schema::{self, CompletionTable, DbObject, TableInfo, TableTarget};
@@ -494,13 +495,65 @@ impl Session {
         })
     }
 
+    async fn alter_plan(
+        &self,
+        target: &TableTarget,
+        ops: &[AlterOp],
+    ) -> CoreResult<(Vec<String>, bool)> {
+        let current = self.table_design(target).await?;
+        if self.dialect.is_sqlite() && rebuild::needs_rebuild(&current, ops) {
+            let objects = self.sqlite_objects(target).await?;
+            return Ok((rebuild::statements(target, &current, &objects, ops)?, true));
+        }
+        Ok((
+            design::alter_statements(self.dialect, self.is_mariadb(), target, &current, ops)?,
+            false,
+        ))
+    }
+
+    async fn sqlite_objects(&self, target: &TableTarget) -> CoreResult<SqliteObjects> {
+        let sql = format!(
+            "SELECT type, name, sql FROM {}.sqlite_master WHERE tbl_name = {} AND sql IS NOT NULL ORDER BY type, name",
+            self.dialect.quote_ident(&target.database),
+            self.dialect.quote_literal(&target.table)
+        );
+        let rows = self.meta_rows(Some(&target.database), &sql).await?;
+        let mut objects = SqliteObjects {
+            table_sql: String::new(),
+            indexes: Vec::new(),
+            triggers: Vec::new(),
+        };
+        for row in rows {
+            let mut cells = row.into_iter();
+            let (Some(kind), Some(name), Some(sql)) = (
+                cells.next().flatten(),
+                cells.next().flatten(),
+                cells.next().flatten(),
+            ) else {
+                continue;
+            };
+            match kind.as_str() {
+                "table" => objects.table_sql = sql,
+                "index" => objects.indexes.push((name, sql)),
+                "trigger" => objects.triggers.push(sql),
+                _ => {}
+            }
+        }
+        if objects.table_sql.is_empty() {
+            return Err(CoreError::NotFound(format!(
+                "table {} does not exist",
+                target.table
+            )));
+        }
+        Ok(objects)
+    }
+
     pub async fn preview_alter(
         &self,
         target: &TableTarget,
         ops: &[AlterOp],
     ) -> CoreResult<Vec<String>> {
-        let current = self.table_design(target).await?;
-        design::alter_statements(self.dialect, self.is_mariadb(), target, &current, ops)
+        Ok(self.alter_plan(target, ops).await?.0)
     }
 
     pub async fn apply_alter(
@@ -509,9 +562,70 @@ impl Session {
         ops: &[AlterOp],
     ) -> CoreResult<Vec<String>> {
         self.ensure_writable()?;
-        let statements = self.preview_alter(target, ops).await?;
-        self.run_structure(&target.database, &statements).await?;
+        let (statements, rebuilt) = self.alter_plan(target, ops).await?;
+        if rebuilt {
+            self.run_sqlite_rebuild(&target.database, &statements)
+                .await?;
+        } else {
+            self.run_structure(&target.database, &statements).await?;
+        }
         Ok(statements)
+    }
+
+    async fn run_sqlite_rebuild(&self, database: &str, statements: &[String]) -> CoreResult<()> {
+        let body: Vec<&String> = statements
+            .iter()
+            .filter(|statement| {
+                statement.as_str() != rebuild::FOREIGN_KEYS_OFF
+                    && !statement.starts_with(rebuild::FOREIGN_KEY_CHECK)
+            })
+            .collect();
+        let check = statements
+            .iter()
+            .find(|statement| statement.starts_with(rebuild::FOREIGN_KEY_CHECK))
+            .cloned()
+            .unwrap_or_else(|| rebuild::FOREIGN_KEY_CHECK.to_string());
+        let key = meta_key(self.dialect, Some(database));
+        let mut meta = self.meta.lock().await;
+        let conn = self
+            .meta_connection(&mut meta, &key, Some(database))
+            .await?;
+        conn.execute(rebuild::FOREIGN_KEYS_OFF).await?;
+        let outcome: CoreResult<()> = async {
+            conn.execute("PRAGMA legacy_alter_table = ON").await?;
+            conn.execute("BEGIN").await?;
+            let changed: CoreResult<()> = async {
+                for statement in &body {
+                    conn.execute(statement).await?;
+                }
+                let violations = conn.query_rows(&check).await?;
+                if !violations.is_empty() {
+                    return Err(CoreError::Database(format!(
+                        "{} rows would break foreign keys after the rebuild, nothing was changed",
+                        violations.len()
+                    )));
+                }
+                conn.execute("COMMIT").await?;
+                Ok(())
+            }
+            .await;
+            if changed.is_err()
+                && let Err(rollback) = conn.execute("ROLLBACK").await
+            {
+                tracing::warn!(error = %rollback.message, "rollback failed");
+            }
+            changed
+        }
+        .await;
+        for restore in [
+            "PRAGMA legacy_alter_table = OFF",
+            "PRAGMA foreign_keys = ON",
+        ] {
+            if let Err(err) = conn.execute(restore).await {
+                tracing::warn!(error = %err.message, "sqlite pragma could not be restored");
+            }
+        }
+        outcome
     }
 
     pub fn preview_create(&self, table: &NewTable) -> CoreResult<Vec<String>> {
@@ -1274,15 +1388,14 @@ impl Session {
         }
         let sql = users::user_sql(self.dialect, action)?;
         let database = self.details.database.clone().unwrap_or_default();
-        let secret = action.secret();
         self.run_structure(&database, &sql.statements)
             .await
             .map_err(|err| match err {
                 CoreError::Database(message) => {
-                    CoreError::Database(users::mask_secret(&message, secret))
+                    CoreError::Database(users::mask_secrets(&message, &sql.secrets))
                 }
                 CoreError::Connection(message) => {
-                    CoreError::Connection(users::mask_secret(&message, secret))
+                    CoreError::Connection(users::mask_secrets(&message, &sql.secrets))
                 }
                 other => other,
             })?;

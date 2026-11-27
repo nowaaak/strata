@@ -5201,6 +5201,7 @@ dependencies = [
  "mysql_async",
  "native-tls",
  "postgres-native-tls",
+ "postgres-protocol",
  "rusqlite",
  "russh",
  "serde",

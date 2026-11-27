@@ -163,6 +163,13 @@ const WRITE_WORDS: &[&str] = &[
 ];
 const GLOBAL_SET: &[&str] = &["GLOBAL", "PERSIST", "PERSIST_ONLY", "PASSWORD"];
 
+pub(crate) fn keywords(text: &str, dialect: Dialect) -> Vec<String> {
+    words(text, dialect)
+        .into_iter()
+        .map(|word| word.text)
+        .collect()
+}
+
 pub fn is_write(text: &str, dialect: Dialect) -> bool {
     let words = words(text, dialect);
     let Some(first) = words.first() else {

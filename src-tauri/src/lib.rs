@@ -36,6 +36,12 @@ pub fn run() {
         .manage(commands::updater::PendingUpdate::default())
         .setup(|app| {
             channel::check_identity(&app.config().identifier, channel::current())?;
+            if let (Some(window), Some(name)) = (
+                app.get_webview_window("main"),
+                app.config().product_name.clone(),
+            ) {
+                window.set_title(&name)?;
+            }
             let data_dir = app.path().app_local_data_dir()?;
             let log_dir = app.path().app_log_dir()?;
             app.manage(init_logging(&log_dir)?);

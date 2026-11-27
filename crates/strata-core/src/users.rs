@@ -152,20 +152,12 @@ impl UserAction {
             | Self::RemoveMember { user, .. } => user,
         }
     }
-
-    pub fn secret(&self) -> Option<&str> {
-        match self {
-            Self::Create { password, .. } => password.as_deref(),
-            Self::SetPassword { password, .. } => Some(password.as_str()),
-            _ => None,
-        }
-        .filter(|password| !password.is_empty())
-    }
 }
 
 pub struct UserSql {
     pub statements: Vec<String>,
     pub preview: Vec<String>,
+    pub secrets: Vec<String>,
 }
 
 fn unsupported() -> CoreError {
@@ -278,6 +270,14 @@ fn object(dialect: Dialect, scope: &GrantScope) -> CoreResult<String> {
     })
 }
 
+fn stored_password(dialect: Dialect, password: &str) -> String {
+    if dialect.is_postgres() {
+        postgres_protocol::password::scram_sha_256(password.as_bytes())
+    } else {
+        password.to_string()
+    }
+}
+
 fn password_clause(dialect: Dialect, password: &str) -> String {
     match dialect {
         Dialect::MySql { .. } => format!("IDENTIFIED BY {}", dialect.quote_literal(password)),
@@ -295,6 +295,7 @@ pub fn user_sql(dialect: Dialect, action: &UserAction) -> CoreResult<UserSql> {
     let mysql = dialect.is_mysql();
     let mut statements: Vec<String> = Vec::new();
     let mut preview: Vec<String> = Vec::new();
+    let mut secrets: Vec<String> = Vec::new();
     match action {
         UserAction::Create {
             password,
@@ -303,10 +304,15 @@ pub fn user_sql(dialect: Dialect, action: &UserAction) -> CoreResult<UserSql> {
         } => {
             let password = password.as_deref().filter(|value| !value.is_empty());
             let (real, masked) = match password {
-                Some(password) => (
-                    format!(" {}", password_clause(dialect, password)),
-                    format!(" {}", password_clause(dialect, MASK)),
-                ),
+                Some(password) => {
+                    let stored = stored_password(dialect, password);
+                    secrets.push(password.to_string());
+                    secrets.push(stored.clone());
+                    (
+                        format!(" {}", password_clause(dialect, &stored)),
+                        format!(" {}", password_clause(dialect, MASK)),
+                    )
+                }
                 None => (String::new(), String::new()),
             };
             let (head, tail) = if mysql {
@@ -345,9 +351,12 @@ pub fn user_sql(dialect: Dialect, action: &UserAction) -> CoreResult<UserSql> {
                 ));
             }
             let head = if mysql { "ALTER USER" } else { "ALTER ROLE" };
+            let stored = stored_password(dialect, password);
+            secrets.push(password.clone());
+            secrets.push(stored.clone());
             statements.push(format!(
                 "{head} {target} {}",
-                password_clause(dialect, password)
+                password_clause(dialect, &stored)
             ));
             preview.push(format!(
                 "{head} {target} {}",
@@ -432,6 +441,7 @@ pub fn user_sql(dialect: Dialect, action: &UserAction) -> CoreResult<UserSql> {
     Ok(UserSql {
         statements,
         preview,
+        secrets,
     })
 }
 
@@ -472,11 +482,13 @@ pub fn mask_identified(statement: &str) -> String {
     }
 }
 
-pub fn mask_secret(text: &str, secret: Option<&str>) -> String {
-    match secret.filter(|secret| !secret.is_empty()) {
-        Some(secret) => text.replace(secret, MASK),
-        None => text.to_string(),
-    }
+pub fn mask_secrets(text: &str, secrets: &[String]) -> String {
+    secrets
+        .iter()
+        .filter(|secret| !secret.is_empty())
+        .fold(text.to_string(), |text, secret| {
+            text.replace(secret.as_str(), MASK)
+        })
 }
 
 pub(crate) fn list_sql(dialect: Dialect, mariadb: bool) -> CoreResult<&'static str> {
@@ -653,9 +665,17 @@ mod tests {
             },
         )
         .unwrap();
+        assert!(
+            sql.statements[0]
+                .starts_with("CREATE ROLE \"Le\"\"ser\" LOGIN PASSWORD 'SCRAM-SHA-256$4096:"),
+            "{}",
+            sql.statements[0]
+        );
+        assert!(!sql.statements[0].contains("'pw'"));
+        assert_eq!(sql.secrets.len(), 2);
         assert_eq!(
-            sql.statements,
-            ["CREATE ROLE \"Le\"\"ser\" LOGIN PASSWORD 'pw'"]
+            mask_secrets(&sql.statements[0], &sql.secrets),
+            sql.preview[0]
         );
         assert_eq!(
             sql.preview,
@@ -806,12 +826,13 @@ mod tests {
             user: user("app", None),
             password: "s3cr3t".into(),
         };
-        assert_eq!(action.secret(), Some("s3cr3t"));
+        let sql = user_sql(Dialect::MYSQL, &action).unwrap();
+        assert_eq!(sql.secrets, ["s3cr3t", "s3cr3t"]);
         assert_eq!(
-            mask_secret("near 's3cr3t' at line 1", action.secret()),
+            mask_secrets("near 's3cr3t' at line 1", &sql.secrets),
             format!("near '{MASK}' at line 1")
         );
-        assert_eq!(mask_secret("plain", None), "plain");
+        assert_eq!(mask_secrets("plain", &[]), "plain");
     }
 
     #[test]

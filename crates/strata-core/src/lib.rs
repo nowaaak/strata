@@ -9,6 +9,7 @@ pub mod history;
 pub mod import;
 pub mod processes;
 pub mod profiles;
+mod rebuild;
 pub mod result;
 pub mod routines;
 pub mod schema;

@@ -9,6 +9,7 @@ import {
     matchesShortcut,
     normalizeCombo,
     toCodeMirror,
+    modLabel,
 } from "./shortcuts";
 
 const press = (
@@ -65,5 +66,13 @@ describe("shortcuts", () => {
         expect(toCodeMirror("Shift+Alt+F")).toBe("Shift-Alt-f");
         expect(toCodeMirror("Mod+.")).toBe("Mod-.");
         expect(displayShortcut("Mod+Shift+S", "Strg")).toBe("Strg+⇧+S");
+    });
+
+    it("shows the command key on macOS", () => {
+        expect(modLabel("Strg", true)).toBe("⌘");
+        expect(modLabel("Strg", false)).toBe("Strg");
+        expect(displayShortcut("Mod+Shift+S", modLabel("Ctrl", true))).toBe(
+            displayShortcut("Mod+Shift+S", "⌘"),
+        );
     });
 });

@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use strata_core::design::{AlterOp, ColumnDef, DefaultValue, NewTable};
+use strata_core::design::{
+    AlterOp, ColumnDef, ColumnPosition, DefaultValue, ForeignKeyRule, NewTable,
+};
 use strata_core::driver::{ColumnKind, create_sqlite_file};
 use strata_core::dump::DumpOptions;
 use strata_core::profiles::{
@@ -362,7 +364,7 @@ async fn sqlite_designer_and_structure() {
     );
     assert!(design.indexes.iter().any(|index| index.primary));
 
-    let refused = session
+    let rebuilt = session
         .preview_alter(
             &target("artikel"),
             &[AlterOp::ChangeColumn {
@@ -375,9 +377,13 @@ async fn sqlite_designer_and_structure() {
             }],
         )
         .await
-        .unwrap_err();
-    assert_eq!(refused.kind(), "invalid_input");
-    assert!(refused.to_string().contains("recreating"), "{refused}");
+        .unwrap();
+    assert!(
+        rebuilt
+            .iter()
+            .any(|statement| statement.contains("strata_rebuild_artikel")),
+        "{rebuilt:?}"
+    );
 
     session
         .apply_alter(
@@ -526,4 +532,235 @@ async fn sqlite_read_only_and_cancel() {
             ..
         }
     )));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sqlite_designer_rebuilds_the_table() {
+    let harness = open(Safety::Normal).await;
+    let session = &harness.session;
+    let setup = "CREATE TABLE kunde (id INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE artikel (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, preis REAL DEFAULT 0, kunde INTEGER REFERENCES kunde (id) ON DELETE CASCADE);
+CREATE INDEX artikel_preis ON artikel (preis);
+CREATE TABLE position (nr INTEGER PRIMARY KEY, artikel INTEGER NOT NULL REFERENCES artikel (id));
+CREATE VIEW teuer AS SELECT name, preis FROM artikel WHERE preis > 10;
+CREATE TRIGGER artikel_name BEFORE INSERT ON artikel BEGIN SELECT CASE WHEN NEW.name = '' THEN RAISE(ABORT, 'leer') END; END;
+INSERT INTO kunde VALUES (1, 'Anna'), (2, 'Ben');
+INSERT INTO artikel VALUES (1, 'Käse', 12.5, 1), (2, 'Brot', 3, 2);
+INSERT INTO position VALUES (1, 1), (2, 2)";
+    assert_eq!(failure(&run(session, "s", setup).await), None);
+    let target = target("artikel");
+    let def = |name: &str, data_type: &str, nullable: bool, default: DefaultValue| ColumnDef {
+        name: name.into(),
+        data_type: data_type.into(),
+        nullable,
+        default,
+        auto_increment: false,
+        comment: None,
+    };
+    let ops = vec![
+        AlterOp::ChangeColumn {
+            name: "preis".into(),
+            column: def("preis", "NUMERIC(10,2)", false, DefaultValue::Keep),
+            position: Some(ColumnPosition::After {
+                column: "id".into(),
+            }),
+        },
+        AlterOp::AddColumn {
+            column: def(
+                "einheit",
+                "TEXT",
+                false,
+                DefaultValue::Text {
+                    value: "Stück".into(),
+                },
+            ),
+            position: None,
+        },
+    ];
+    let preview = session.preview_alter(&target, &ops).await.unwrap();
+    assert_eq!(preview[0], "PRAGMA foreign_keys = OFF");
+    assert!(
+        preview
+            .iter()
+            .any(|statement| statement.starts_with("DROP TABLE"))
+    );
+    session.apply_alter(&target, &ops).await.unwrap();
+
+    let design = session.table_design(&target).await.unwrap();
+    let columns: Vec<(&str, &str, bool)> = design
+        .columns
+        .iter()
+        .map(|column| {
+            (
+                column.name.as_str(),
+                column.data_type.as_str(),
+                column.nullable,
+            )
+        })
+        .collect();
+    assert_eq!(
+        columns,
+        [
+            ("id", "INTEGER", true),
+            ("preis", "NUMERIC(10,2)", false),
+            ("name", "TEXT", false),
+            ("kunde", "INTEGER", true),
+            ("einheit", "TEXT", false),
+        ]
+    );
+    assert!(
+        design
+            .indexes
+            .iter()
+            .any(|index| index.name == "artikel_preis")
+    );
+    assert_eq!(design.foreign_keys.len(), 1);
+
+    run(
+        session,
+        "q",
+        "SELECT name, preis, einheit FROM artikel ORDER BY id",
+    )
+    .await;
+    let rows = session.fetch_rows("q", 0, 0, 10).unwrap();
+    assert_eq!(rows[0][0].as_deref(), Some("Käse"));
+    assert_eq!(rows[0][1].as_deref(), Some("12.5"));
+    assert_eq!(rows[1][2].as_deref(), Some("Stück"));
+    run(session, "q", "SELECT count(*) FROM teuer").await;
+    assert_eq!(
+        first(session, "q")[0].as_deref(),
+        Some("1"),
+        "the view must still work"
+    );
+    assert!(
+        failure(&run(session, "q", "INSERT INTO artikel (name) VALUES ('')").await).is_some(),
+        "the trigger must be recreated"
+    );
+    assert!(
+        failure(&run(session, "q", "INSERT INTO artikel (name) VALUES ('Käse')").await).is_some(),
+        "the unique constraint must survive"
+    );
+    assert!(
+        failure(&run(session, "q", "INSERT INTO position VALUES (3, 99)").await).is_some(),
+        "the child table must still reference artikel"
+    );
+    run(session, "q", "PRAGMA foreign_keys").await;
+    assert_eq!(first(session, "q")[0].as_deref(), Some("1"));
+    let variables = session
+        .server_info(ServerInfoKind::Variables)
+        .await
+        .unwrap();
+    assert_eq!(
+        variables
+            .iter()
+            .find(|setting| setting.name == "foreign_keys")
+            .unwrap()
+            .value,
+        "1",
+        "the metadata connection must switch foreign keys on again"
+    );
+
+    run(session, "q", "INSERT INTO kunde VALUES (3, 'Cleo')").await;
+    run(session, "q", "UPDATE artikel SET kunde = NULL WHERE id = 2").await;
+    let dropped = session
+        .apply_alter(
+            &target,
+            &[
+                AlterOp::DropForeignKey {
+                    name: "artikel_fk_0".into(),
+                },
+                AlterOp::AddForeignKey {
+                    name: "artikel_kunde".into(),
+                    columns: vec!["kunde".into()],
+                    target_table: "kunde".into(),
+                    target_columns: vec!["id".into()],
+                    on_delete: ForeignKeyRule::Restrict,
+                    on_update: ForeignKeyRule::NoAction,
+                },
+            ],
+        )
+        .await;
+    assert!(dropped.is_ok(), "{dropped:?}");
+    let design = session.table_design(&target).await.unwrap();
+    assert_eq!(design.foreign_keys[0].on_delete, ForeignKeyRule::Restrict);
+
+    session
+        .apply_alter(
+            &target,
+            &[AlterOp::DropForeignKey {
+                name: "artikel_fk_0".into(),
+            }],
+        )
+        .await
+        .unwrap();
+    assert!(
+        session
+            .table_design(&target)
+            .await
+            .unwrap()
+            .foreign_keys
+            .is_empty()
+    );
+    assert_eq!(
+        failure(&run(session, "q", "UPDATE artikel SET kunde = 77 WHERE id = 2").await),
+        None
+    );
+    let broken = session
+        .apply_alter(
+            &target,
+            &[
+                AlterOp::ChangeColumn {
+                    name: "einheit".into(),
+                    column: def("einheit", "TEXT", true, DefaultValue::Keep),
+                    position: None,
+                },
+                AlterOp::AddForeignKey {
+                    name: "artikel_kunde".into(),
+                    columns: vec!["kunde".into()],
+                    target_table: "kunde".into(),
+                    target_columns: vec!["id".into()],
+                    on_delete: ForeignKeyRule::Restrict,
+                    on_update: ForeignKeyRule::NoAction,
+                },
+            ],
+        )
+        .await
+        .unwrap_err();
+    assert!(broken.to_string().contains("foreign keys"), "{broken}");
+    let unchanged = session.table_design(&target).await.unwrap();
+    assert!(
+        unchanged.foreign_keys.is_empty()
+            && !unchanged
+                .columns
+                .iter()
+                .find(|column| column.name == "einheit")
+                .unwrap()
+                .nullable,
+        "a failed rebuild must change nothing"
+    );
+    run(session, "q", "SELECT count(*) FROM artikel").await;
+    assert_eq!(first(session, "q")[0].as_deref(), Some("2"));
+
+    run(
+        session,
+        "q",
+        "CREATE TABLE geprueft (id INTEGER PRIMARY KEY, n INTEGER CHECK (n > 0))",
+    )
+    .await;
+    let refused = session
+        .preview_alter(
+            &target_of("geprueft"),
+            &[AlterOp::ChangeColumn {
+                name: "n".into(),
+                column: def("n", "REAL", true, DefaultValue::Keep),
+                position: None,
+            }],
+        )
+        .await
+        .unwrap_err();
+    assert!(refused.to_string().contains("CHECK"), "{refused}");
+}
+
+fn target_of(table: &str) -> TableTarget {
+    target(table)
 }

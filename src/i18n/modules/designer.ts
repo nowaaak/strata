@@ -35,7 +35,7 @@ export const de = {
     noReorderPostgres:
         "PostgreSQL kann die Reihenfolge vorhandener Spalten nicht ändern. Neue Spalten kommen ans Ende.",
     sqliteLimits:
-        "SQLite kann bestehende Spalten nur umbenennen oder löschen. Typ, NULL, Standardwert und Schlüssel ändern sich nur über eine neu angelegte Tabelle.",
+        "Was SQLite nicht direkt ändern kann, baut Strata über eine neue Tabelle mit Datenkopie um. Die Vorschau zeigt jeden Schritt, und bei einem Fehler bleibt alles unverändert.",
     foreignKeys: "Fremdschlüssel",
     foreignKey: {
         name: "Name",
@@ -47,7 +47,6 @@ export const de = {
         pickTargetColumns: "Zielspalten in derselben Reihenfolge anklicken",
         pickTableFirst: "Erst eine Zieltabelle wählen",
         countMismatch: "Gleich viele Spalten auf beiden Seiten wählen",
-        none: "Keine Fremdschlüssel",
         onDelete: "Beim Löschen",
         onUpdate: "Beim Ändern",
         add: "Fremdschlüssel hinzufügen",
@@ -140,7 +139,7 @@ export const en: typeof de = {
     noReorderPostgres:
         "PostgreSQL cannot change the order of existing columns. New columns are added at the end.",
     sqliteLimits:
-        "SQLite can only rename or drop existing columns. Type, NULL, default and keys only change by creating the table again.",
+        "What SQLite cannot change directly, Strata rebuilds as a new table and copies the data. The preview shows every step, and nothing changes if one fails.",
     foreignKeys: "Foreign keys",
     foreignKey: {
         name: "Name",
@@ -152,7 +151,6 @@ export const en: typeof de = {
         pickTargetColumns: "Click referenced columns in the same order",
         pickTableFirst: "Choose a referenced table first",
         countMismatch: "Choose as many columns on both sides",
-        none: "No foreign keys",
         onDelete: "On delete",
         onUpdate: "On update",
         add: "Add foreign key",

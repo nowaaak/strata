@@ -58,7 +58,7 @@ Read-only profiles are enforced twice: Strata refuses write statements, and the 
 
 ## TLS
 
-`Required` encrypts without verifying the certificate, like libpq's `require`. It is meant for servers with self-signed certificates. `VerifyFull` checks the certificate chain and host name against the Windows certificate store. Both use `native-tls`, so Windows trust settings apply. PostgreSQL errors include their cause chain, so a server without TLS reports "server does not support TLS" instead of a bare handshake error.
+`Required` encrypts without verifying the certificate, like libpq's `require`. It is meant for servers with self-signed certificates. `VerifyFull` checks the certificate chain and host name against the certificate store of the system. Both use `native-tls`, so the trust settings of Windows, macOS (Keychain) or Linux (OpenSSL) apply. PostgreSQL errors include their cause chain, so a server without TLS reports "server does not support TLS" instead of a bare handshake error.
 
 ## SSH tunnel
 
@@ -134,7 +134,13 @@ Snippets live in `snippets.json` in the app data folder and are global, not boun
 
 `users.rs` lists accounts from `mysql.user` (MariaDB keeps the lock flag as JSON in `mysql.global_priv`) and roles from `pg_roles` with their attributes and memberships. Privileges come from `information_schema.USER_PRIVILEGES`, `SCHEMA_PRIVILEGES` and `TABLE_PRIVILEGES` on MySQL and MariaDB, plus the raw `SHOW GRANTS` with password hashes masked. On PostgreSQL they are read from the ACLs of `pg_database`, `pg_namespace` and `pg_class` with `aclexplode`, so schema and table privileges cover the database of the connection. `GRANT ... ON ALL TABLES IN SCHEMA` therefore shows up as one entry per table.
 
-Every change is a `UserAction`. `user_sql` builds the real statements and a preview in which the password is replaced by a mask. Only the preview reaches the frontend, the query history and the log, and a database error that quotes the statement is masked too before it leaves the session. Privilege names are free text from the UI but must consist of letters, underscores and spaces, everything else is quoted. Deleting a PostgreSQL role runs `REASSIGN OWNED BY` to the connected user and `DROP OWNED BY` first, because a role with privileges or objects cannot be dropped. Objects of the role are kept and change owner. PostgreSQL passwords are sent as text and hashed by the server with its `password_encryption` setting.
+Every change is a `UserAction`. `user_sql` builds the real statements and a preview in which the password is replaced by a mask. Only the preview reaches the frontend, the query history and the log, and a database error that quotes the statement is masked too before it leaves the session. Privilege names are free text from the UI but must consist of letters, underscores and spaces, everything else is quoted. Deleting a PostgreSQL role runs `REASSIGN OWNED BY` to the connected user and `DROP OWNED BY` first, because a role with privileges or objects cannot be dropped. Objects of the role are kept and change owner. PostgreSQL passwords are hashed in Strata with SCRAM-SHA-256 and a random salt, like `\password` in psql, so only the verifier reaches the server and its log. The hash is masked in error messages too.
+
+## SQLite table rebuild
+
+SQLite's `ALTER TABLE` only adds, renames and drops columns. Any other change in the designer (type, NULL, default, auto increment, primary key, foreign keys, column order, a new column that is `NOT NULL` without default) switches to the procedure from the SQLite documentation: switch foreign keys off, start a transaction, create the new table under a temporary name, copy the rows, drop the old table, rename the new one, recreate the indexes and triggers, run `PRAGMA foreign_key_check` and commit. Foreign keys are switched on again in every case. If the check finds rows that break a foreign key, everything is rolled back. `legacy_alter_table` is on during the rebuild, because otherwise SQLite would check views that point to the table while it is briefly missing.
+
+The new definition is built from the catalog: columns with their declared type, NULL and default, the primary key (as a table constraint, so an `INTEGER` key stays the rowid, `AUTOINCREMENT` only when the original had it or the user asks for it), `UNIQUE` constraints, foreign keys with their rules and `STRICT` or `WITHOUT ROWID`. Plain indexes are created again from the catalog with renamed columns, partial and expression indexes and triggers from their original SQL. Tables with `CHECK`, `COLLATE` or generated columns are refused, because those parts are not in the catalog and would be lost.
 
 ## Process list
 
@@ -154,7 +160,7 @@ The table filter is user SQL by design. It is placed on its own lines, so a trai
 
 ## Settings, profiles and secrets
 
-Settings and profiles are JSON files in the app local data directory. Writes go to a temporary file first and are then renamed, so a crash cannot leave a half written file. Passwords never touch these files. They are stored with `keyring` in the Windows Credential Manager under the app identifier.
+Settings and profiles are JSON files in the app local data directory. Writes go to a temporary file first and are then renamed, so a crash cannot leave a half written file. Passwords never touch these files. They are stored with `keyring` in the password store of the system under the app identifier: the Windows Credential Manager, the macOS Keychain or the Secret Service on Linux.
 
 ## Settings and language
 

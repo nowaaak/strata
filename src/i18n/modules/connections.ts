@@ -49,8 +49,7 @@ export const de = {
     dialog: {
         newTitle: "Neue Verbindung",
         editTitle: "Verbindung bearbeiten",
-        description:
-            "Passwörter landen in der Windows-Anmeldeinformationsverwaltung, nie in einer Datei.",
+        description: "Passwörter landen im Passwortspeicher des Systems, nie in einer Datei.",
         name: "Name",
         namePlaceholder: "z. B. Lokale Entwicklung",
         type: "Typ",
@@ -186,7 +185,7 @@ export const en: typeof de = {
     dialog: {
         newTitle: "New connection",
         editTitle: "Edit connection",
-        description: "Passwords are stored in the Windows Credential Manager, never in a file.",
+        description: "Passwords are stored in the system password store, never in a file.",
         name: "Name",
         namePlaceholder: "e.g. Local development",
         type: "Type",

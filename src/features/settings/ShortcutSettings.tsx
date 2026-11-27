@@ -10,6 +10,7 @@ import {
     displayShortcut,
     effectiveShortcuts,
     isUsableShortcut,
+    modLabel,
     type ShortcutAction,
 } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
@@ -91,7 +92,7 @@ export function ShortcutSettings({
                                 </span>
                                 <button
                                     type="button"
-                                    aria-label={`${text.actions[action]}: ${displayShortcut(current[action], t.common.ctrl)}`}
+                                    aria-label={`${text.actions[action]}: ${displayShortcut(current[action], modLabel(t.common.ctrl))}`}
                                     aria-pressed={isRecording}
                                     onClick={() => {
                                         setError(null);
@@ -104,7 +105,7 @@ export function ShortcutSettings({
                                 >
                                     {isRecording
                                         ? text.recording
-                                        : displayShortcut(current[action], t.common.ctrl)}
+                                        : displayShortcut(current[action], modLabel(t.common.ctrl))}
                                 </button>
                                 <Button
                                     variant="ghost"

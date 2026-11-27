@@ -154,6 +154,12 @@ export function toCodeMirror(combo: string): string {
     return [...parts, cmKey].join("-");
 }
 
+export const IS_MAC = typeof navigator !== "undefined" && navigator.userAgent.includes("Macintosh");
+
+export function modLabel(ctrlLabel: string, mac = IS_MAC): string {
+    return mac ? "⌘" : ctrlLabel;
+}
+
 export function displayShortcut(combo: string, ctrlLabel: string, shiftLabel = "⇧"): string {
     const normalized = normalizeCombo(combo) ?? combo;
     return normalized

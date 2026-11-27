@@ -8,10 +8,28 @@ permissions:
   contents: write
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: ""
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+          - platform: ubuntu-22.04
+            args: ""
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v5
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
 
       - uses: actions/setup-node@v5
         with:
@@ -21,8 +39,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.99"
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.args }}
 
       - run: npm ci
 
@@ -44,8 +65,18 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: Strata ${{ github.ref_name }}
           releaseBody: |
-            Strata is a desktop client for MySQL, MariaDB and PostgreSQL.
+            Strata is a desktop client for MySQL, MariaDB, PostgreSQL and SQLite.
 
-            Installed versions update themselves. For a first install, download the setup file below.
-          releaseDraft: false
+            Installed versions update themselves. For a first install, download the file for your system below: the setup `.exe` for Windows, the `.dmg` for macOS (aarch64 for Apple silicon, x64 for Intel) and the `.AppImage`, `.deb` or `.rpm` for Linux. Only the AppImage updates itself on Linux.
+          releaseDraft: true
           prerelease: false
+          args: ${{ matrix.args }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Publish the release once every platform is built
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest

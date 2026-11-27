@@ -1,0 +1,19 @@
+{
+    "app": {
+        "windows": [
+            {
+                "label": "main",
+                "title": "Strata",
+                "width": 1280,
+                "height": 800,
+                "minWidth": 960,
+                "minHeight": 600,
+                "decorations": true,
+                "titleBarStyle": "Overlay",
+                "hiddenTitle": true,
+                "dragDropEnabled": false,
+                "backgroundColor": "#151515"
+            }
+        ]
+    }
+}

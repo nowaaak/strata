@@ -1,6 +1,11 @@
 import { useMemo } from "react";
 import { useT } from "@/i18n";
-import { displayShortcut, effectiveShortcuts, type ShortcutAction } from "@/lib/shortcuts";
+import {
+    displayShortcut,
+    effectiveShortcuts,
+    modLabel,
+    type ShortcutAction,
+} from "@/lib/shortcuts";
 import { useSettings } from "./useSettings";
 
 export function useShortcuts() {
@@ -11,5 +16,5 @@ export function useShortcuts() {
 export function useShortcutLabel() {
     const t = useT();
     const shortcuts = useShortcuts();
-    return (action: ShortcutAction) => displayShortcut(shortcuts[action], t.common.ctrl);
+    return (action: ShortcutAction) => displayShortcut(shortcuts[action], modLabel(t.common.ctrl));
 }
